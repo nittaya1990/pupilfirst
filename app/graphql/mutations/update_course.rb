@@ -4,25 +4,53 @@ module Mutations
       def validate(_object, _context, value)
         course = Course.find_by(id: value[:id])
 
-        return "Unable to find course with id: #{value[:id]}" if course.blank?
+        if course.blank?
+          return(
+            I18n.t(
+              "mutations.update_course.unable_to_find_course",
+              value: value[:id]
+            )
+          )
+        end
+      end
+    end
+
+    class DefaultCohortMustExist < GraphQL::Schema::Validator
+      def validate(_object, _context, value)
+        course = Course.find_by(id: value[:id])
+
+        return if course.blank?
+
+        cohort = course.cohorts.find_by(id: value[:default_cohort_id])
+
+        if cohort.blank?
+          return(
+            I18n.t(
+              "mutations.update_course.select_valid_cohort",
+              value: value[:default_cohort_id]
+            )
+          )
+        end
       end
     end
     include QueryAuthorizeSchoolAdmin
     include ValidateCourseEditable
 
     argument :id, ID, required: true
+    argument :default_cohort_id, ID, required: true
 
     validates CourseMustBePresent => {}
+    validates DefaultCohortMustExist => {}
 
-    description 'Update a course.'
+    description "Update a course."
 
     field :course, Types::CourseType, null: true
 
     def resolve(_params)
       notify(
         :success,
-        I18n.t('shared.done_exclamation'),
-        I18n.t('mutations.update_course.success_notification')
+        I18n.t("shared.notifications.done_exclamation"),
+        I18n.t("mutations.update_course.success_notification")
       )
 
       { course: update_course }

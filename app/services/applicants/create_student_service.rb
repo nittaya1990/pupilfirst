@@ -3,18 +3,23 @@ module Applicants
     def initialize(applicant)
       @applicant = applicant
       @course = applicant.course
+      @cohort = @course.default_cohort
     end
 
     def create(tags)
+      if @cohort.blank?
+        raise "Default Cohort Assignment is required to onboard applicants"
+      end
+
       Applicant.transaction do
         student = create_new_student(tags)
 
-        # Make sure the tag is in the school's list of founder tags.
+        # Make sure the tag is in the school's list of student tags.
         # This is useful for retrieval in the school admin interface.
-        tags_to_add = tags.select { |tag| !tag.in?(school.founder_tag_list) }
+        tags_to_add = tags.select { |tag| !tag.in?(school.student_tag_list) }
 
         unless tags.empty?
-          school.founder_tag_list.add(tags_to_add)
+          school.student_tag_list.add(tags_to_add)
           school.save!
         end
 
@@ -29,29 +34,25 @@ module Applicants
 
     def create_new_student(tags)
       # Create a user and generate a login token.
+      user = school.users.with_email(@applicant.email).first
       user =
-        school
-          .users
-          .with_email(@applicant.email)
-          .first_or_create!(email: @applicant.email, title: 'Student')
+        User.create!(
+          school: school,
+          email: @applicant.email,
+          title: "Student"
+        ) if user.nil?
       user.regenerate_login_token
       user.update!(name: @applicant.name)
 
-      # Create the team and tag it.
-      team = Startup.create!(name: @applicant.name, level: first_level)
-      team.tag_list.add(tags)
-      team.save!
-
       # Finally, create a student profile for the user.
-      Founder.create!(user: user, startup: team)
+      student = Student.create!(user: user, cohort: @cohort)
+      student.tag_list.add(tags)
+      student.save!
+      student
     end
 
     def school
       @school ||= @course.school
-    end
-
-    def first_level
-      @first_level ||= @course.levels.find_by(number: 1)
     end
   end
 end

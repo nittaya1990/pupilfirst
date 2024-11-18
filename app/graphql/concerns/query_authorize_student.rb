@@ -7,8 +7,8 @@ module QueryAuthorizeStudent
     # Has access to school
     return false unless course&.school == current_school && student.present?
 
-    # Founder has access to the course
-    return false unless !course.ends_at&.past? && !team.access_ends_at&.past?
+    # Student has access to the course
+    return false unless !student.cohort.ended?
 
     # Level must be accessible.
     return false unless LevelPolicy.new(pundit_user, target.level).accessible?
@@ -18,24 +18,16 @@ module QueryAuthorizeStudent
 
   # Students can complete a live target if they're non-reviewed, or if they've reached the target's level for reviewed targets.
   def target_can_be_completed?
-    target.live? &&
-      (
-        target.evaluation_criteria.empty? ||
-          target.level.number <= team.level.number
-      )
+    target.live? && (target.evaluation_criteria.empty? || true)
   end
 
   def student
     @student ||=
       current_user
-        .founders
-        .joins(:level)
-        .where(levels: { course_id: course })
+        .students
+        .joins(:cohort)
+        .where(cohorts: { course_id: course })
         .first
-  end
-
-  def team
-    @team ||= student.startup
   end
 
   def course
@@ -47,14 +39,20 @@ module QueryAuthorizeStudent
   end
 
   def students
-    target.individual_target? ? [student] : student.startup.founders
+    if target.team_target? && student.team.exists?
+      student.team.students
+    else
+      [student]
+    end
   end
 
   def ensure_submittability
     return if target_status == Targets::StatusService::STATUS_PENDING
 
-    errors[:base] <<
+    errors.add(
+      :base,
       "Target status #{target_status.to_s.humanize}, You cannot submit the target"
+    )
   end
 
   def target_status

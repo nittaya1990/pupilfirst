@@ -2,7 +2,6 @@ module Mutations
   class CreateEvaluationCriterion < GraphQL::Schema::Mutation
     argument :name, String, required: true
     argument :max_grade, Integer, required: true
-    argument :pass_grade, Integer, required: true
     argument :grades_and_labels, [Types::GradeAndLabelInputType], required: true
     argument :course_id, ID, required: true
 
@@ -14,7 +13,7 @@ module Mutations
       mutator = CreateEvaluationCriterionMutator.new(context, params)
 
       if mutator.valid?
-        mutator.notify(:success, 'Done!', 'Evaluation criterion created successfully!')
+        mutator.notify(:success, I18n.t("shared.notifications.success"), I18n.t("mutations.create_evaluation_criterion.eval_crit_notification"))
         { evaluation_criterion: mutator.create_evaluation_criterion }
       else
         mutator.notify_errors

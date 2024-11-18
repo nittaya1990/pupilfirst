@@ -1,20 +1,19 @@
 module Mutations
   class CreateFeedback < ApplicationQuery
-    include QueryAuthorizeCoach
+    include QueryAuthorizeReviewSubmissions
     include ValidateSubmissionGradable
 
-    argument :submission_id, ID, required: true
     argument :feedback, String, required: true
 
-    description 'Create feedback for submission'
+    description "Create feedback for submission"
 
     field :success, Boolean, null: false
 
     def resolve(_params)
       notify(
         :success,
-        I18n.t('mutations.create_feedback.success_notification.title'),
-        I18n.t('mutations.create_feedback.success_notification.description')
+        I18n.t("mutations.create_feedback.success_notification.title"),
+        I18n.t("mutations.create_feedback.success_notification.description")
       )
 
       { success: create_feedback }
@@ -25,7 +24,6 @@ module Mutations
         startup_feedback =
           StartupFeedback.create!(
             feedback: @params[:feedback],
-            startup: submission.startup,
             faculty: coach,
             timeline_event: submission
           )
@@ -43,6 +41,10 @@ module Mutations
 
     def coach
       @coach ||= current_user.faculty
+    end
+
+    def allow_token_auth?
+      true
     end
   end
 end

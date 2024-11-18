@@ -3,13 +3,15 @@ class Level < ApplicationRecord
   validates :name, presence: true
 
   has_many :target_groups, dependent: :restrict_with_error
-  has_many :startups, dependent: :restrict_with_error
   has_many :targets, through: :target_groups
   has_many :timeline_events, through: :targets
 
-  scope :unlocked, -> { where(unlock_at: nil).or(where('unlock_at <= ?', Time.zone.now)) }
+  scope :unlocked,
+        -> { where(unlock_at: nil).or(where("unlock_at <= ?", Time.zone.now)) }
 
   belongs_to :course
+
+  validates_with RateLimitValidator, limit: 25, scope: :course_id
 
   normalize_attribute :unlock_at
 
@@ -18,15 +20,23 @@ class Level < ApplicationRecord
   end
 
   def short_name
-    I18n.t('shared.level_label.long_without_name', number: number.to_s)
+    I18n.t("shared.level_label.long_without_name", number: number.to_s)
   end
 
   def unlocked
-    ActiveSupport::Deprecation.warn('Use `unlocked?` instead.')
+    ActiveSupport::Deprecation.warn("Use `unlocked?` instead.")
     unlocked?
   end
 
   def unlocked?
     unlock_at.blank? || unlock_at.past?
+  end
+
+  def filter_display_name
+    "#{self.number},#{self.name}"
+  end
+
+  def filter_name
+    "#{self.id};#{filter_display_name}"
   end
 end

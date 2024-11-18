@@ -1,15 +1,7 @@
 <% presenter = ::Layouts::StudentTopNavPresenter.new(self) %>
-
-<% content_for(:head) do %>
-  <%= stylesheet_pack_tag 'StudentTopNavPack', media: 'all' %>
-<% end %>
-
-<% content_for(:tail) do %>
-  <%= javascript_pack_tag 'StudentTopNavPack', nonce: true %>
-<% end %>
-
-<script id="student-top-nav-props" type="application/json"><%= presenter.props_to_json.html_safe %></script>
-
-<header id="header" class="flex-shrink-0">
+<script id="student-top-nav-props" type="application/json">
+  <%= presenter.props_to_json.html_safe %>
+</script>
+<header id="header" class="md:fixed md:top-0 md:inset-x-0 z-20 bg-white print:hidden">
   <div id="student-top-nav"></div>
 </header>

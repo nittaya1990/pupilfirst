@@ -53,22 +53,28 @@ module Courses
 
       return if time_since_last_mail > 2.minutes
 
-      errors[:base] <<
-        'An email was sent less than two minutes ago. Please wait for a few minutes before trying again.'
+      errors.add(
+        :base,
+        I18n.t('applicants.enroll.errors.ensure_time_between_requests')
+      )
     end
 
     def not_a_student
       return if model.users.with_email(email).empty?
 
-      errors[:base] <<
-        "You are already enrolled in #{model.name} course. Try signing in, instead."
+      errors.add(
+        :base,
+        I18n.t('applicants.enroll.errors.not_a_student', course_name: model.name)
+      )
     end
 
     def email_should_not_have_bounced
       return if BounceReport.where(email: email).blank?
 
-      errors[:base] <<
-        'The email address you supplied cannot be used because an email we sent earlier bounced'
+      errors.add(
+        :base,
+        I18n.t('applicants.enroll.errors.email_should_not_have_bounced')
+      )
     end
   end
 end

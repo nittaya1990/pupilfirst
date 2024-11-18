@@ -1,144 +1,292 @@
-require 'rails_helper'
+require "rails_helper"
 
-feature 'User signing in by supplying email address', js: true do
+feature "User signing in by supplying email address", js: true do
+  include HtmlSanitizerSpecHelper
+  include ConfigHelper
+
   let!(:school) { create :school, :current }
 
-  context 'when a user exists' do
+  context "when a user exists" do
     let(:user) { create :user }
 
-    context "when the user hasn't signed in" do
-      scenario 'user can sign in with email' do
+    scenario "user signs in by typing verification code sent via email" do
+      visit new_user_session_path
+
+      fill_in "Email address", with: user.email
+      click_button "Continue with email"
+
+      expect(page).to have_content(
+        "We've sent a verification email to #{user.email}"
+      )
+
+      # Check email.
+      open_email(user.email)
+      expect(current_email.subject).to eq("Sign into #{school.name}")
+
+      # Extract the verification code.
+      verification_code = current_email.body.match(/(\d{6})/)[1]
+
+      fill_in "Verification code", with: verification_code
+      click_button "Verify code to continue"
+
+      expect(page).to have_content(user.name)
+      expect(page).to have_link("Edit Profile")
+    end
+
+    context "when the max number of verification attempts is 3" do
+      around do |example|
+        with_secret(input_token_max_attempts: 3) { example.run }
+      end
+
+      scenario "entering incorrect verification code three times wipes the code" do
         visit new_user_session_path
 
-        click_link 'Continue with email'
-        fill_in 'Email Address', with: user.email
-        click_button 'Email me a link to sign in'
+        fill_in "Email address", with: user.email
+        click_button "Continue with email"
 
-        expect(page).to have_content("We've sent you a magic link!")
+        expect(page).to have_content(
+          "We've sent a verification email to #{user.email}"
+        )
+
+        # Set the verification code to a known value, for this test.
+        AuthenticationToken.last.update!(token: "000000")
+
+        # Enter an incorrect verification code.
+        fill_in "Verification code", with: "111111"
+        click_button "Verify code to continue"
+
+        expect(page).to have_content("The code you entered is incorrect")
+        expect(FailedInputTokenAttempt.count).to eq(1)
+
+        failed_attempt = FailedInputTokenAttempt.first
+
+        expect(failed_attempt.authenticatable).to eq(user)
+        expect(failed_attempt.purpose).to eq("sign_in")
+
+        # Enter an incorrect verification code again.
+        fill_in "Verification code", with: "222222"
+        click_button "Verify code to continue"
+
+        expect(page).to have_content("The code you entered is incorrect")
+        expect(FailedInputTokenAttempt.count).to eq(2)
+
+        # Enter an incorrect verification code again.
+        fill_in "Verification code", with: "333333"
+
+        expect { click_button "Verify code to continue" }.to change {
+          AuthenticationToken.count
+        }.from(1).to(0)
+
+        expect(page).to have_content(
+          "You've exceeded the number of attempts allowed to enter this code."
+        )
+
+        expect(FailedInputTokenAttempt.count).to eq(0)
       end
     end
 
-    context 'when the user requested a magic link less that two minutes ago' do
-      scenario 'user is blocked from repeat attempts to request magic link' do
-        visit new_user_session_path
+    scenario "user cannot sign in with an expired verification code" do
+      visit new_user_session_path
 
-        click_link 'Continue with email'
-        fill_in 'Email Address', with: user.email
-        click_button 'Email me a link to sign in'
+      fill_in "Email address", with: user.email
+      click_button "Continue with email"
 
-        expect(page).to have_content("We've sent you a magic link!")
+      expect(page).to have_content(
+        "We've sent a verification email to #{user.email}"
+      )
 
-        click_link 'Sign In'
-        click_link 'Continue with email'
-        fill_in 'Email Address', with: user.email
-        click_button 'Email me a link to sign in'
+      # Check email.
+      open_email(user.email)
+      expect(current_email.subject).to eq("Sign into #{school.name}")
 
-        expect(page).to have_content(
-          'An email was sent less than two minutes ago. Please wait for a few minutes before trying again'
-        )
-      end
+      # Extract the verification code.
+      verification_code = current_email.body.match(/(\d{6})/)[1]
+
+      AuthenticationToken.find_by(token: verification_code).update!(
+        expires_at: 1.minute.ago
+      )
+
+      fill_in "Verification code", with: verification_code
+      click_button "Verify code to continue"
+
+      expect(page).to have_content("The code you entered is incorrect")
     end
 
-    context 'when the user tries to reset password' do
-      scenario 'user is allowed to reset and blocked from repeat attempts to send reset password email' do
-        visit new_user_session_path
+    scenario "user can sign in by clicking the one-time link sent via email" do
+      visit new_user_session_path
 
-        click_link 'Continue with email'
-        click_link 'Set a New Password'
-        fill_in 'Email', with: user.email
-        click_button 'Request password reset'
+      fill_in "Email address", with: user.email
+      click_button "Continue with email"
 
-        expect(page).to have_content(
-          "We've sent you a link to reset your password"
-        )
+      expect(page).to have_content(
+        "We've sent a verification email to #{user.email}"
+      )
 
-        click_link 'Sign In'
-        click_link 'Continue with email'
-        click_link 'Set a New Password'
-        fill_in 'Email', with: user.email
-        click_button 'Request password reset'
+      expect(page).to have_content("We've included a magic link in the email")
 
-        expect(page).to have_content(
-          'An email was sent less than two minutes ago. Please wait for a few minutes before trying again'
-        )
-      end
+      # Check for the presence of expected links in the email.
+      open_email(user.email)
+
+      expect(current_email.subject).to eq("Sign into #{school.name}")
+      expect(current_email.body).to have_link("you can click this link")
+
+      expect(current_email.body).to match(
+        %r{/users/token\?shared_device=false&amp;token=}
+      )
+
+      token = current_email.body.match(/token=([A-Za-z0-9_-]+)/)[1]
+      visit user_token_path(shared_device: false, token: token)
+
+      expect(page).to have_content(user.name)
+      expect(page).to have_link("Edit Profile")
     end
 
-    context 'when user visits the reset password page' do
+    scenario "user is blocked from repeated attempts to request a sign-in email" do
+      visit new_user_session_path
+
+      fill_in "Email address", with: user.email
+      click_button "Continue with email"
+
+      expect(page).to have_content(
+        "We've sent a verification email to #{user.email}"
+      )
+
+      # Check email.
+      open_email(user.email)
+      expect(current_email.subject).to eq("Sign into #{school.name}")
+
+      # Reload the page.
+      visit new_user_session_path
+
+      fill_in "Email address", with: user.email
+      click_button "Continue with email"
+
+      # It'll say that we've sent an email...
+      expect(page).to have_content("We've sent a verification email")
+
+      # ...but no additional email should have been sent.
+      expect(ActionMailer::Base.deliveries.count).to eq(1)
+    end
+
+    scenario "user resets their password and is blocked from repeat attempts to send reset password email" do
+      visit new_user_session_path
+
+      click_link "Alternatively, sign in using a password."
+      click_link "Reset your password"
+      fill_in "Email address", with: user.email
+      click_button "Request password reset"
+
+      expect(page).to have_content(
+        "We've sent a confirmation email to #{user.email}"
+      )
+
+      open_email(user.email)
+
+      expect(sanitize_html(current_email.body)).to include(
+        "https://test.host/users/reset_password?token="
+      )
+
+      # Trying to reset password again should not send another email.
+      visit new_user_session_path
+      click_link "Alternatively, sign in using a password."
+      click_link "Reset your password"
+      fill_in "Email address", with: user.email
+      click_button "Request password reset"
+
+      expect(page).to have_content("We've sent a confirmation email")
+
+      # Confirm that no additional email is sent.
+      expect(ActionMailer::Base.deliveries.count).to eq(1)
+    end
+
+    context "when user visits the reset password page" do
       let(:password) { Faker::Internet.password }
+      let(:course) { create :course }
+      let(:level) { create :level, :one, course: course }
+      let(:cohort) { create :cohort, course: course }
 
-      before { create :founder, user: user }
+      before { create :student, user: user, cohort: cohort }
 
-      scenario 'allow to change password with a valid token' do
+      scenario "user changes password with a valid token" do
         user.regenerate_reset_password_token
 
         user.update!(reset_password_sent_at: Time.zone.now)
         visit reset_password_path(token: user.original_reset_password_token)
 
-        fill_in 'New Password', with: password
-        fill_in 'Confirm Password', with: password
-        click_button 'Update Password'
-        expect(page).to have_content(user.founders.first.course.name)
+        fill_in "New Password", with: "password123"
+        fill_in "Confirm Password", with: "password123"
+
+        expect(page).to have_text(
+          "Add another word or two. Uncommon words are better."
+        )
+
+        expect(page).to have_text("Weak")
+
+        fill_in "New Password", with: password
+        fill_in "Confirm Password", with: password
+        click_button "Update Password"
+        expect(page).to have_content(user.students.first.course.name)
         expect(user.reload.reset_password_token).to eq(nil)
 
         # Let's try signing in.
-        click_button 'Show user controls'
-        click_link 'Sign Out'
+        click_button "Show user controls"
+        click_link "Sign Out"
 
         expect(page).to have_content(school.name)
 
         # Try signing in with an invalid password, and then with the newly set correct password.
-        click_link 'Sign In'
-        click_link 'Continue with email'
-        fill_in 'Email Address', with: user.email
-        fill_in 'Password', with: 'incorrect password'
-        click_button 'Sign in with password'
+        click_link "Sign In"
+        click_link "Alternatively, sign in using a password."
+        fill_in "Email address", with: user.email
+        fill_in "Password", with: "incorrect password"
+        click_button "Continue with email and password"
 
         expect(
           page
-        ).to have_text 'The supplied email address and password do not match'
+        ).to have_text "The supplied email address and password do not match"
 
         # Let's try using the enter key instead.
-        fill_in 'Email Address', with: user.email
-        fill_in 'Password', with: password + "\n"
+        fill_in "Email address", with: user.email
+        fill_in "Password", with: password + "\n"
 
-        expect(page).to have_content(user.founders.first.course.name)
+        expect(page).to have_content(user.students.first.course.name)
       end
 
-      scenario 'does not allow to change password without a valid token' do
-        visit reset_password_path(token: 'myRandomToken')
+      scenario "user cannot change password without a valid token" do
+        visit reset_password_path(token: "a-random-token")
 
         expect(page).to have_content(
-          'That one-time link has already been used, or is invalid'
+          "That one-time link has already been used, or is invalid"
         )
       end
     end
   end
 
-  context 'when user does not exist' do
-    scenario 'Email me a link will responds with an error message' do
-      visit new_user_session_path
+  scenario "user attempts to sign in with an unregistered email address" do
+    visit new_user_session_path
 
-      click_link 'Continue with email'
-      fill_in 'Email Address', with: 'unregistered@example.org'
-      click_button 'Email me a link to sign in'
+    fill_in "Email address", with: "unregistered@example.org"
+    click_button "Continue with email"
 
-      expect(page).to have_content(
-        'Could not find user with this email. Please check the email that you entered'
-      )
-    end
+    expect(page).to have_content(
+      "We've sent a verification email to unregistered@example.org"
+    )
 
-    scenario 'Reset password responds with an error message' do
-      visit new_user_session_path
+    expect(ActionMailer::Base.deliveries.count).to eq(0)
+  end
 
-      click_link 'Continue with email'
-      click_link 'Set a New Password'
-      fill_in 'Email', with: 'unregistered@example.org'
-      click_button 'Request password reset'
+  scenario "user attempts to reset password of an unregistered email address" do
+    visit new_user_session_path
 
-      expect(page).to have_content(
-        'Could not find user with this email. Please check the email that you entered'
-      )
-    end
+    click_link "Alternatively, sign in using a password."
+    click_link "Reset your password"
+    fill_in "Email address", with: "unregistered@example.org"
+    click_button "Request password reset"
+
+    expect(page).to have_content(
+      "If your email address is associated with an account, you'll find instructions to set a new password in your inbox"
+    )
+
+    expect(ActionMailer::Base.deliveries.count).to eq(0)
   end
 end

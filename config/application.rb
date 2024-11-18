@@ -1,8 +1,10 @@
-require_relative 'boot'
-require 'rails/all'
+require_relative "boot"
+
+require "rails/all"
+require_relative "../lib/maintenance"
 
 if Rails.env.development?
-  require 'dotenv'
+  require "dotenv"
   Dotenv.load
 end
 
@@ -12,39 +14,50 @@ Bundler.require(*Rails.groups)
 
 module Pupilfirst
   class Application < Rails::Application
-    VERSION = '2022.0'
-
     # Initialize configuration defaults for originally generated Rails version.
+    config.load_defaults 7.0
+
+    config.add_autoload_paths_to_load_path = false
+
+    # Please, add to the `ignore` list any other `lib` subdirectories that do
+    # not contain `.rb` files, or that should not be reloaded or eager loaded.
+    # Common ones are `templates`, `generators`, or `middleware`, for example.
+    config.autoload_lib(ignore: %w(assets tasks))
+
+    config.assets.precompile << "delayed/web/application.css"
+
+    # Configuration for the application, engines, and railties goes here.
     #
-    # Note: This is not the original Rails version. However, this is the easiest way to enforce the latest defaults.
-    config.load_defaults 6.1
-
-    config.assets.precompile << 'delayed/web/application.css'
-
-    # Settings in config/environments/* take precedence over those specified here.
-    # Application configuration should go into files in config/initializers
-    # -- all .rb files in that directory are automatically loaded.
-
+    # These settings can be overridden in specific environments using the files
+    # in config/environments, which are processed later.
+    #
+    # config.time_zone = "Central Time (US & Canada)"
+    # config.eager_load_paths << Rails.root.join("extras")
     config.i18n.enforce_available_locales = true
 
     # include nested directories inside locale
-    config.i18n.load_path += Dir[Rails.root.join('config/locales/**/*.yml')]
+    config.i18n.load_path += Dir[Rails.root.join("config/locales/**/*.yml")]
 
     # Precompile fonts.
-    config.assets.paths << Rails.root.join('app/assets/fonts')
+    config.assets.paths << Rails.root.join("app/assets/fonts")
 
     # Add some paths to autoload
     %w[presenters services forms/concerns].each do |folder|
-      config.autoload_paths.push(Rails.root.join('app', folder))
+      config.autoload_paths.push(Rails.root.join("app", folder))
     end
 
     # Ensure BatchLoader's cache is purged between requests.
     config.middleware.use BatchLoader::Middleware
+
+    config.middleware.insert_before Rack::Runtime, Maintenance
+
+    # Disables the deprecated #to_s override in some Ruby core classes
+    config.active_support.disable_to_s_conversion = true
   end
 end
 
-require 'flipper'
-require 'flipper/adapters/active_record'
+require "flipper"
+require "flipper/adapters/active_record"
 
 Flipper.configure do |config|
   config.adapter { Flipper::Adapters::ActiveRecord.new }

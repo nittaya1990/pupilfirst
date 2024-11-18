@@ -1,0 +1,73 @@
+.editor-drawer {
+  @apply bg-white flex h-screen fixed;
+  right: 0px;
+  top: 0px;
+  width: 100%;
+  z-index: 501;
+  animation: slideIn 0.25s ease 0s 1 normal forwards;
+}
+
+@screen md {
+  .editor-drawer {
+    width: 48rem;
+  }
+
+  .editor-drawer--large {
+    width: 64rem;
+  }
+
+  .editor-drawer--small {
+    width: 32rem;
+  }
+}
+
+.editor-drawer__close {
+  left: -52px;
+  z-index: -1;
+}
+
+[dir="rtl"] .editor-drawer__close {
+  left: auto;
+  right: -52px;
+}
+
+[dir="rtl"] .editor-drawer {
+  right: auto;
+  left: 0;
+  animation: slideIn--rtl 0.25s ease 0s 1 normal forwards;
+}
+
+@keyframes slideIn {
+  0% {
+    right: -9999px;
+  }
+}
+
+@keyframes slideIn--rtl {
+  0% {
+    left: -9999px;
+  }
+}
+
+.blanket {
+  bottom: 0px;
+  left: 0px;
+  position: fixed;
+  right: 0px;
+  top: 0px;
+  z-index: 500;
+  animation-name: blanket-animation;
+  animation-duration: 0.15s;
+  animation-fill-mode: forwards;
+}
+
+@keyframes blanket-animation {
+  from {
+    background: rgba(3, 4, 5, 0);
+    @apply backdrop-blur-none;
+  }
+  to {
+    background: rgba(3, 4, 5, 0.75);
+    @apply backdrop-blur-sm;
+  }
+}

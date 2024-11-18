@@ -4,10 +4,10 @@ feature 'Applicant Index', js: true do
   include UserSpecHelper
   include NotificationHelper
 
-  # Setup a course with a single founder target, ...
+  # Setup a course with a single student target, ...
   let!(:tags) { ['Pupilfirst'] }
-  let!(:school) { create :school, :current, founder_tag_list: tags }
-  let!(:course) { create :course, school: school }
+  let!(:school) { create :school, :current,student_tag_list: tags }
+  let!(:course) { create :course, :with_default_cohort, school: school }
   let!(:level_1) { create :level, :one, course: course }
   let!(:school_admin) { create :school_admin, school: school }
   let!(:applicant_1) do
@@ -94,15 +94,13 @@ feature 'Applicant Index', js: true do
     expect(page).to have_text('Student created successfully.')
     dismiss_notification
 
-    student = Founder.last
+    student = Student.last
     expect(student.name).to eq(applicant_1.name)
     expect(student.email).to eq(applicant_1.email)
     expect(student.title).to eq('Student')
-    expect(student.startup.access_ends_at).to eq(nil)
   end
 
-  scenario 'school admin sets ends at while onboarding an applicant' do
-    access_ends_at = 1.day.from_now
+  scenario 'school admin onboards an applicant with additional data' do
     title_1 = Faker::Lorem.words(number: 2).join(' ')
     affiliation_1 = Faker::Lorem.words(number: 2).join(' ')
 
@@ -111,30 +109,22 @@ feature 'Applicant Index', js: true do
 
     click_button "Show Actions: #{applicant_1.name}"
     fill_in 'Title', with: title_1
-    fill_in "Student's Access Ends On", with: access_ends_at.to_date.iso8601
     find('input[id="title"]').click
     fill_in 'Affiliation', with: affiliation_1
     fill_in 'Tags', with: 'Abc'
-    find('span[title="Add new tag Abc"]').click
+    find('button[title="Add new tag Abc"]').click
     fill_in 'Tags', with: 'Def'
-    find('span[title="Add new tag Def"]').click
+    find('button[title="Add new tag Def"]').click
     click_button 'Add as Student'
     expect(page).to have_text('Student created successfully.')
     dismiss_notification
 
-    student = Founder.last
+    student = Student.last
     open_email(applicant_1.email)
     expect(student.name).to eq(applicant_1.name)
     expect(student.email).to eq(applicant_1.email)
     expect(student.title).to eq(title_1)
     expect(student.affiliation).to eq(affiliation_1)
-    expect(
-      student
-        .startup
-        .access_ends_at
-        .in_time_zone(student.user.time_zone)
-        .to_date
-    ).to eq(access_ends_at.to_date)
-    expect(student.startup.tag_list).to contain_exactly('Abc', 'Def')
+    expect(student.tag_list).to contain_exactly('Abc', 'Def')
   end
 end

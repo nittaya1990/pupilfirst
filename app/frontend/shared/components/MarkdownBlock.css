@@ -1,0 +1,193 @@
+.markdown-block {
+  @apply break-words;
+}
+
+/*
+ * Permissive styling used in most Markdown blocks.
+ */
+
+.markdown-block__permissive p {
+  @apply py-2 leading-relaxed;
+}
+
+.markdown-block__permissive h1 {
+  @apply pt-6 text-4xl leading-snug;
+}
+
+.markdown-block__permissive h2 {
+  @apply pt-6 text-2xl leading-snug;
+}
+
+.markdown-block__permissive h3 {
+  @apply pt-6 text-xl leading-snug;
+}
+
+.markdown-block__permissive h4 {
+  @apply pt-6 text-lg leading-snug;
+}
+
+.markdown-block__permissive h5 {
+  @apply pt-6 text-sm leading-snug;
+}
+
+.markdown-block__permissive h6 {
+  @apply pt-6 text-xs leading-snug;
+}
+
+.markdown-block__permissive em {
+  @apply italic;
+}
+
+.markdown-block__permissive b,
+.markdown-block__permissive strong {
+  @apply font-bold;
+}
+
+.markdown-block__permissive s,
+.markdown-block__permissive del {
+  @apply line-through;
+}
+
+.markdown-block__permissive ul {
+  @apply pt-3 list-disc ms-7;
+}
+
+@screen md {
+  .markdown-block__permissive ul {
+    @apply pt-3 list-disc ms-10;
+  }
+}
+
+.markdown-block__permissive ol {
+  @apply pt-3 list-decimal ms-7;
+}
+
+@screen md {
+  .markdown-block__permissive ol {
+    @apply pt-3 list-decimal ms-10;
+  }
+}
+
+.markdown-block__permissive li {
+  @apply pb-2 leading-relaxed;
+}
+
+.markdown-block__permissive a {
+  @apply font-semibold underline whitespace-pre-line text-primary-500;
+  word-break: break-word;
+}
+
+.markdown-block__permissive a:hover {
+  @apply bg-primary-100 text-primary-600;
+}
+
+.markdown-block__permissive blockquote {
+  @apply px-4 py-2 my-4 text-lg font-semibold text-gray-800 border-gray-800 border-s-4 bg-gray-50 rounded-e;
+}
+
+.markdown-block__permissive blockquote code,
+.markdown-block__permissive blockquote pre {
+  @apply text-sm font-normal;
+}
+
+.markdown-block__permissive hr {
+  @apply pb-2 mt-6 border-t border-gray-300;
+}
+
+.markdown-block__permissive sup {
+  font-size: 75%;
+  line-height: 0;
+  @apply relative align-baseline;
+  top: -0.5em;
+}
+
+.markdown-block__permissive sub {
+  font-size: 75%;
+  line-height: 0;
+  bottom: -0.25em;
+  @apply relative align-baseline;
+}
+
+.markdown-block__permissive img {
+  @apply mx-auto;
+}
+
+.markdown-block__permissive table {
+  @apply block w-full pt-2 overflow-auto border-collapse table-auto;
+}
+
+.markdown-block__permissive table th {
+  @apply px-4 py-2 font-semibold border border-gray-300 bg-gray-50;
+}
+
+.markdown-block__permissive table tr {
+  @apply bg-white border-t border-gray-300;
+}
+
+.markdown-block__permissive table td {
+  @apply px-4 py-2 border border-gray-300;
+}
+
+.markdown-block__permissive .align-left {
+  @apply block;
+}
+
+.markdown-block__permissive .align-center {
+  @apply block text-center;
+}
+
+.markdown-block__permissive .align-right {
+  @apply block ltr:text-right rtl:text-left;
+}
+
+/*
+ * Remove padding-top from the first child.
+ */
+
+.markdown-block__permissive > :first-child {
+  @apply pt-0;
+}
+
+/*
+ * Stricter sanitization that limits the kinds of tags available.
+ */
+
+.markdown-block__area-of-text p {
+  @apply py-2 leading-relaxed;
+}
+
+.markdown-block__area-of-text em {
+  @apply italic;
+}
+
+.markdown-block__area-of-text strong {
+  @apply font-bold;
+}
+
+.markdown-block__area-of-text s,
+.markdown-block__area-of-text del {
+  @apply line-through;
+}
+
+.markdown-block__area-of-text a {
+  @apply font-semibold underline whitespace-pre-line text-primary-500;
+  word-break: break-word;
+}
+
+.markdown-block__area-of-text a:hover {
+  @apply bg-primary-100 text-primary-600;
+}
+
+.markdown-block__area-of-text sup {
+  font-size: 75%;
+  line-height: 0;
+  @apply relative align-baseline;
+  top: -0.5em;
+}
+
+.markdown-block__area-of-text sub {
+  font-size: 75%;
+  line-height: 0;
+  bottom: -0.25em;
+  @apply relative align-baseline;
+}

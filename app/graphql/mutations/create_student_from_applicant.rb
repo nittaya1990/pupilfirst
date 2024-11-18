@@ -5,7 +5,6 @@ module Mutations
     argument :applicant_id, ID, required: true
     argument :title, String, required: false
     argument :affiliation, String, required: false
-    argument :access_ends_at, GraphQL::Types::ISO8601DateTime, required: false
     argument :tags, [String], required: true
     argument :notify_student, Boolean, required: false
 
@@ -17,14 +16,14 @@ module Mutations
       convert_applicant
       notify(
         :success,
-        I18n.t('shared.done_exclamation'),
+        I18n.t('shared.notifications.done_exclamation'),
         I18n.t('mutations.create_student_from_applicant.success_notification')
       )
       { success: true }
     end
 
     def convert_applicant
-      Founder.transaction do
+      Student.transaction do
         student =
           Applicants::CreateStudentService.new(applicant).create(@params[:tags])
 
@@ -33,10 +32,6 @@ module Mutations
           affiliation:
             @params[:affiliation].presence || student.user.affiliation
         )
-
-        if @params[:access_ends_at].present?
-          student.startup.update!(access_ends_at: @params[:access_ends_at])
-        end
 
         # rubocop:disable Lint/LiteralAsCondition
         if @params[:notify_student].presence || false
@@ -52,6 +47,10 @@ module Mutations
 
     def applicant
       Applicant.find_by(id: @params[:applicant_id], email_verified: true)
+    end
+
+    def allow_token_auth?
+      true
     end
   end
 end

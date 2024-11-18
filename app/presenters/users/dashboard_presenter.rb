@@ -1,7 +1,7 @@
 module Users
   class DashboardPresenter < ApplicationPresenter
     def page_title
-      "Dashboard | #{current_school.name}"
+      I18n.t("shared.dashboard") + " | #{current_school.name}"
     end
 
     def props
@@ -11,19 +11,37 @@ module Users
         show_user_edit: show_user_edit?,
         communities: community_details_array,
         user_name: current_user.name,
+        preferred_name: current_user.preferred_name,
         user_title: current_user.full_title,
-        issued_certificates: issued_certificate_details
+        issued_certificates: issued_certificate_details,
+        standing: standing
       }
 
       if current_user.avatar.attached?
-        dashboard_props[:avatar_url] =
-          view.rails_public_blob_url(current_user.avatar_variant(:thumb))
+        dashboard_props[:avatar_url] = view.rails_public_blob_url(
+          current_user.avatar_variant(:thumb)
+        )
       end
 
       dashboard_props
     end
 
     private
+
+    def standing
+      return unless Schools::Configuration.new(current_school).standing_enabled?
+
+      current_standing =
+        current_user
+          .user_standings
+          .includes(:standing)
+          .live
+          .order(created_at: :desc)
+          .first
+          &.standing || current_school.default_standing
+
+      { name: current_standing.name, color: current_standing.color }
+    end
 
     def issued_certificate_details
       current_user
@@ -33,7 +51,7 @@ module Users
         .map do |issued_certificate|
           issued_certificate
             .attributes
-            .slice('id', 'serial_number', 'created_at')
+            .slice("id", "serial_number", "created_at")
             .merge(course_name: issued_certificate.course.name)
         end
     end
@@ -42,19 +60,30 @@ module Users
       @courses ||=
         begin
           if current_school_admin.present?
-            current_school.courses.active.or(
-              current_school.courses.live.where(
-                id: courses_with_student_profile.pluck(:course_id)
+            current_school
+              .courses
+              .joins(:cohorts)
+              .where("cohorts.ends_at > ? OR cohorts.ends_at IS NULL", Time.now)
+              .or(
+                current_school.courses.live.where(
+                  id: courses_with_student_profile.pluck(:course_id)
+                )
               )
-            )
+              .distinct
+              .select("courses.*, LOWER(courses.name) AS lower_case_name")
+              .order("lower_case_name")
           else
-            current_school.courses.live.where(
-              id:
-                (
-                  courses_with_student_profile.pluck(:course_id) +
-                    courses_with_review_access + courses_with_author_access
-                ).uniq
-            )
+            current_school
+              .courses
+              .live
+              .where(
+                id:
+                  (
+                    courses_with_student_profile.pluck(:course_id) +
+                      courses_with_review_access + courses_with_author_access
+                  ).uniq
+              )
+              .order("LOWER(name)")
           end.with_attached_thumbnail
         end
     end
@@ -63,14 +92,13 @@ module Users
       @courses_with_student_profile ||=
         begin
           current_user
-            .founders
-            .joins(:course)
-            .pluck(:course_id, :dropped_out_at, :access_ends_at)
-            .map do |course_id, dropped_out_at, access_ends_at|
+            .students
+            .includes(:cohort)
+            .map do |student|
               {
-                course_id: course_id,
-                dropped_out_at: dropped_out_at,
-                access_ends_at: access_ends_at
+                course_id: student.cohort.course_id,
+                dropped_out_at: student.dropped_out_at,
+                ends_at: student.cohort.ends_at
               }
             end
         end
@@ -79,7 +107,9 @@ module Users
     def courses_with_review_access
       @courses_with_review_access ||=
         begin
-          if current_user.faculty.present?
+          if current_school_admin.present?
+            current_school.courses.pluck(:id)
+          elsif current_user.faculty.present?
             current_user.faculty.courses.pluck(:id)
           else
             []
@@ -106,9 +136,9 @@ module Users
             active_courses =
               Course
                 .live
-                .joins(startups: [founders: :user])
+                .joins(cohorts: [students: :user])
                 .where(users: { id: current_user })
-                .where(startups: { dropped_out_at: nil })
+                .where(students: { dropped_out_at: nil })
             communities_in_school
               .joins(:courses)
               .where(courses: { id: active_courses })
@@ -136,7 +166,7 @@ module Users
             thumbnail_url: course.thumbnail_url,
             linked_communities: course.communities.pluck(:id).map(&:to_s),
             access_ended: student_access_end(course.id),
-            ended: course.ended?
+            ended: course.cohorts.active.blank?
           }
         end
     end
@@ -147,8 +177,8 @@ module Users
 
       return false if course_with_student.blank?
 
-      course_with_student[:access_ends_at].present? &&
-        course_with_student[:access_ends_at].past?
+      course_with_student[:ends_at].present? &&
+        course_with_student[:ends_at].past?
     end
 
     def student_dropped_out(course_id)

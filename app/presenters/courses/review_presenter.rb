@@ -6,7 +6,7 @@ module Courses
     end
 
     def page_title
-      "Review Dashboard | #{@course.name} | #{current_school.name}"
+      "#{I18n.t("presenters.Courses__Review.review_dashboard")} | #{@course.name} | #{current_school.name}"
     end
 
     private
@@ -29,8 +29,8 @@ module Courses
     end
 
     def user_names(timeline_event)
-      timeline_event.founders.map do |founder|
-        founder.user.name
+      timeline_event.students.map do |student|
+        student.user.name
       end.join(', ')
     end
   end

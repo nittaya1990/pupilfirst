@@ -1,10 +1,11 @@
-# The following monkey-patch fixes https://github.com/fnando/i18n-js/issues/616
-module I18nJS
-  def self.translations
-    ::I18n.backend.send(:init_translations)
-    ::I18n.backend.send(:translations)
-  end
-end
+# All locales should be listed here, even if they are in `I18N_AVAILABLE_LOCALES`.
+I18n.available_locales = %w[en ru ar zh-cn pt-br]
 
-I18n.available_locales = Rails.application.secrets.locale[:available]
-I18n.default_locale = Rails.application.secrets.locale[:default]
+I18n.default_locale = Settings.locale.default
+
+if Settings.locale.default != "en"
+  Rails.application.config.i18n.fallbacks = [
+    Settings.locale.default.to_sym,
+    :en
+  ]
+end

@@ -1,5 +1,5 @@
 class ApplicationController < ActionController::Base
-  include Pundit
+  include Pundit::Authorization
 
   # Prevent CSRF attacks by raising an exception. Note that this is different from the default of :null_session.
   # Rails 5 introduced a boolean option called prepend for maintaining the order of execution
@@ -15,8 +15,6 @@ class ApplicationController < ActionController::Base
   helper_method :avatar
   helper_method :current_host
   helper_method :current_school
-  helper_method :current_founder
-  helper_method :current_startup
   helper_method :current_coach
   helper_method :current_school_admin
 
@@ -25,9 +23,9 @@ class ApplicationController < ActionController::Base
     raise exception unless Rails.env.production?
 
     # Force format to HTML, because we don't have error pages for other format requests.
-    request.format = 'html'
+    request.format = "html"
 
-    raise ActionController::UnknownFormat, 'Not Acceptable'
+    raise ActionController::UnknownFormat, "Not Acceptable"
   end
 
   # Pundit authorization error should cause a 404.
@@ -41,16 +39,19 @@ class ApplicationController < ActionController::Base
   end
 
   rescue_from ActionController::InvalidAuthenticityToken do
-    flash[:error] = I18n.t('shared.invalid_authenticity_token_error')
+    flash.now[:error] = I18n.t("shared.invalid_authenticity_token_error")
   end
 
   # Redirect all requests from unknown domains to service homepage.
   rescue_from RequestFromUnknownDomain do
-    redirect_to "https://www.pupilfirst.com?redirect_from=#{current_host}"
+    redirect_to(
+      "https://lms.pupilfirst.org?redirect_from=#{current_host}",
+      allow_other_host: true
+    )
   end
 
   def raise_not_found
-    raise ActionController::RoutingError, 'Not Found'
+    raise ActionController::RoutingError, "Not Found"
   end
 
   def after_sign_in_path_for(resource_or_scope)
@@ -58,7 +59,7 @@ class ApplicationController < ActionController::Base
   end
 
   def current_host
-    return 'test.host' if Rails.env.test?
+    return "test.host" if Rails.env.test?
 
     # If there is a port in the request URL, then keep it in the string returned here.
     if request.original_url.match?(/^https?:\/\/.*:\d{1,5}/)
@@ -75,7 +76,7 @@ class ApplicationController < ActionController::Base
   # Returns the "resolved" school for a request.
   def current_school
     @current_school ||=
-      if Rails.application.secrets.multitenancy
+      if Settings.multitenancy
         resolved_school = current_domain&.school
 
         raise RequestFromUnknownDomain if resolved_school.blank?
@@ -88,33 +89,6 @@ class ApplicationController < ActionController::Base
 
   def current_coach
     @current_coach ||= current_user&.faculty
-  end
-
-  def current_founder
-    @current_founder ||=
-      begin
-        if current_user.present?
-          founder_id = read_cookie(:founder_id)
-
-          # Founders in current school for the user
-          founders = current_user.founders
-
-          # Try to select founder from value stored in cookie.
-          founder =
-            if founder_id.present?
-              founders.not_dropped_out.find_by(id: founder_id)
-            else
-              nil
-            end
-
-          # Return selected founder, if any, or return the first founder (if any).
-          founder.presence || founders.not_dropped_out.first
-        end
-      end
-  end
-
-  def current_startup
-    @current_startup ||= current_founder&.startup
   end
 
   def current_school_admin
@@ -156,14 +130,13 @@ class ApplicationController < ActionController::Base
       render plain:
                "If this wasn't an integration test, you'd be redirected to: #{url}"
     else
-      redirect_to(url)
+      redirect_to(url, allow_other_host: true)
     end
   end
 
   def pundit_user
     OpenStruct.new(
       current_user: current_user,
-      current_founder: current_founder,
       current_school: current_school,
       current_coach: current_coach,
       current_school_admin: current_school_admin
@@ -175,11 +148,15 @@ class ApplicationController < ActionController::Base
   def api_token
     @api_token ||=
       begin
-        header = request.headers['Authorization']&.strip
+        header = request.headers["Authorization"]&.strip
 
         # Authorization headers are of format "Authorization: <type> <credentials>".
         # We only care about the supplied credentials.
-        header.split(' ')[-1] if header.present?
+        if header&.starts_with?("HMAC")
+          # skip: do nothing this is a webhook request
+        elsif header.present?
+          header.split(" ")[-1]
+        end
       end
   end
 
@@ -194,12 +171,12 @@ class ApplicationController < ActionController::Base
 
   private
 
-  def set_time_zone(&block) # rubocop:disable Naming/AccessorMethodName
-    Time.use_zone(current_user.time_zone, &block)
+  def set_time_zone(&)
+    Time.use_zone(current_user.time_zone, &)
   end
 
-  def switch_locale(&action)
-    I18n.with_locale(current_user.locale, &action)
+  def switch_locale(&)
+    I18n.with_locale(current_user.locale, &)
   end
 
   def sign_out_if_required
@@ -208,19 +185,10 @@ class ApplicationController < ActionController::Base
     redirect_to root_url if service.signed_out?
   end
 
-  def authenticate_founder!
-    # User must be logged in.
-    authenticate_user!
-
-    return if current_founder.present? && !current_founder.dropped_out?
-
-    redirect_to root_path
-  end
-
   def storable_location?
     non_html_response =
       destroy_user_session_path ||
-        (is_a?(::TargetsController) && params[:action] == 'details_v2')
+        (is_a?(::TargetsController) && params[:action] == "details_v2")
 
     public_page =
       _process_action_callbacks.none? { |p| p.filter == :authenticate_user! }
@@ -235,7 +203,7 @@ class ApplicationController < ActionController::Base
 
   def avatar(
     name,
-    founder: nil,
+    student: nil,
     faculty: nil,
     version: :mid,
     background_shape: :circle
@@ -244,14 +212,14 @@ class ApplicationController < ActionController::Base
       return helpers.image_tag(faculty.image).html_safe
     end
 
-    if founder.present? && founder.avatar.attached?
-      return helpers.image_tag(founder.avatar_variant(version)).html_safe
+    if student.present? && student.avatar.attached?
+      return helpers.image_tag(student.avatar_variant(version)).html_safe
     end
 
     Scarf::InitialAvatar
       .new(
         name,
-        font_family: ['Source Sans Pro', 'sans-serif'],
+        font_family: ["Source Sans Pro", "sans-serif"],
         background_shape: background_shape
       )
       .svg
@@ -262,11 +230,28 @@ class ApplicationController < ActionController::Base
     return false if current_domain.blank?
 
     return false if current_domain.primary? || current_school.domains.one?
-
-    !current_school.configuration['disable_primary_domain_redirection']
+    !Schools::Configuration.new(
+      current_school
+    ).disable_primary_domain_redirection?
   end
 
   def redirect_to_primary_domain
-    observable_redirect_to "#{request.ssl? ? 'https' : 'http'}://#{current_school.domains.primary.fqdn}#{request.path}"
+    observable_redirect_to "#{request.ssl? ? "https" : "http"}://#{current_school.domains.primary.fqdn}#{request.path}"
+  end
+
+  before_action :set_last_seen_at,
+                if:
+                  proc {
+                    user_signed_in? &&
+                      (
+                        session[:last_seen_at] == nil ||
+                          Time.zone.parse(session[:last_seen_at]) <
+                            15.minutes.ago
+                      )
+                  }
+
+  def set_last_seen_at
+    current_user.update!(last_seen_at: Time.current)
+    session[:last_seen_at] = Time.current.iso8601
   end
 end

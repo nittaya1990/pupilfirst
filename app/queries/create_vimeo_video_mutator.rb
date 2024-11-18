@@ -8,17 +8,20 @@ class CreateVimeoVideoMutator < ApplicationQuery
 
   def create_vimeo_video
     vimeo_api = Vimeo::ApiService.new(current_school)
-    response = vimeo_api.create_video(size, title, description)
+    video_title = sanitize_title(title.presence || target.title).truncate(120)
+    response = vimeo_api.create_video(size, video_title, description)
 
     if response[:error].present? || response[:error_code].present?
-      if response[:developer_message].present?
-        errors[:base] << response[:developer_message]
+      if response[:error_code].present?
+        errors.add(:base, I18n.t("errors.vimeo.#{response[:error_code]}"))
+      elsif response[:developer_message].present?
+        errors.add(:base, response[:developer_message])
       else
-        errors[:base] <<
-          (
-            response[:error] ||
-              "Encountered error with code #{response[:error_code]} when trying to create a Vimeo video."
-          )
+        errors.add(
+          :base,
+          response[:error] ||
+            "Encountered error with code #{response[:error_code]} when trying to create a Vimeo video."
+        )
       end
 
       nil
@@ -31,6 +34,10 @@ class CreateVimeoVideoMutator < ApplicationQuery
   end
 
   private
+
+  def sanitize_title(title)
+    title.gsub(/[^0-9A-Za-z\s]/, '')
+  end
 
   def resource_school
     course.school

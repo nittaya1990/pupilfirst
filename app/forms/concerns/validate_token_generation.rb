@@ -1,7 +1,6 @@
 # This module is included in:
 #   Users::Sessions::SendResetPasswordEmailForm
 #   Users::Sessions::SignInWithEmailForm
-#
 
 module ValidateTokenGeneration
   extend ActiveSupport::Concern
@@ -10,24 +9,12 @@ module ValidateTokenGeneration
 
   private
 
-  def user_with_email_must_exist
-    return if user.present? || email.blank?
-
-    errors[:base] <<
-      'Could not find user with this email. Please check the email that you entered.'
-  end
-
-  def ensure_time_between_requests
-    return if user.blank?
-
-    return if token_generated_at.blank?
+  def duplicate_request?
+    return false if token_generated_at.blank?
 
     time_since_last_mail = Time.zone.now - token_generated_at
 
-    return if time_since_last_mail > 2.minutes
-
-    errors[:base] <<
-      'An email was sent less than two minutes ago. Please wait for a few minutes before trying again.'
+    time_since_last_mail < 2.minutes
   end
 
   def email_should_not_have_bounced
@@ -35,8 +22,10 @@ module ValidateTokenGeneration
 
     return unless user&.email_bounced?
 
-    errors[:email] <<
-      'The email address you supplied cannot be used because an email we sent earlier bounced'
+    errors.add(
+      :email,
+      "The email address you supplied cannot be used because an email we sent earlier bounced"
+    )
   end
 
   def user

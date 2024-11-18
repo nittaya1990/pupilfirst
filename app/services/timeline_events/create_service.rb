@@ -2,38 +2,61 @@ module TimelineEvents
   class CreateService
     def initialize(
       params,
-      founder,
+      student,
       notification_service: Developers::NotificationService.new
     )
       @params = params
-      @founder = founder
+      @student = student
       @target = params[:target]
+      @assignment = @target.assignments.not_archived.first
       @notification_service = notification_service
     end
 
     def execute
       submission =
         TimelineEvent.transaction do
+          timeline_event_params =
+            (
+              if @assignment.evaluation_criteria.blank?
+                @params.merge(passed_at: Time.zone.now)
+              else
+                @params
+              end
+            )
           TimelineEvent
-            .create!(@params)
+            .create!(timeline_event_params)
             .tap do |s|
-              @founder.timeline_event_owners.create!(
+              @student.timeline_event_owners.create!(
                 timeline_event: s,
                 latest: true
               )
 
-              create_team_entries(s) if @params[:target].team_target?
+              create_team_entries(s) if @target.team_target?
 
               update_latest_flag(s)
             end
         end
 
+      if @assignment.evaluation_criteria.blank?
+        TimelineEvents::AfterMarkingAsCompleteJob.perform_later(submission)
+      end
+
       @notification_service.execute(
-        @founder.course,
+        @student.course,
         :submission_created,
-        @founder.user,
+        @student.user,
         submission
       )
+
+      if submission.target.action_config.present?
+        Github::RunActionsJob.perform_later(submission)
+        SubmissionReport.create!(
+          submission_id: submission.id,
+          reporter: SubmissionReport::VIRTUAL_TEACHING_ASSISTANT,
+          status: SubmissionReport.statuses[:queued],
+          target_url: submission.actions_url
+        )
+      end
 
       submission
     end
@@ -50,27 +73,29 @@ module TimelineEvents
     end
 
     def update_latest_flag(timeline_event)
-      TimelineEventOwner
-        .where(
-          timeline_event_id: old_events(timeline_event).live,
-          founder: owners
-        )
-        .update_all(latest: false) # rubocop:disable Rails/SkipsModelValidations
+      TimelineEventOwner.where(
+        timeline_event_id: old_events(timeline_event).live,
+        student: owners
+      ).update_all(latest: false) # rubocop:disable Rails/SkipsModelValidations
     end
 
     def owners
-      @target.team_target? ? @founder.startup.founders : @founder
+      if (@target.team_target? && @student.team)
+        @student.team.students
+      else
+        @student
+      end
     end
 
     def team_members
-      @founder.startup.founders - [@founder]
+      @student.team ? @student.team.students - [@student] : []
     end
 
     def old_events(timeline_event)
       @target
         .timeline_events
         .joins(:timeline_event_owners)
-        .where(timeline_event_owners: { founder: owners })
+        .where(timeline_event_owners: { student: owners })
         .where.not(id: timeline_event)
     end
   end

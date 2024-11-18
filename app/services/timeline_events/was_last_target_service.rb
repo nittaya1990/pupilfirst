@@ -5,47 +5,51 @@ module TimelineEvents
     end
 
     def was_last_target?
-      return false unless startup.level == last_level
+      return false if milestone_assignments.empty?
 
-      return false if final_milestone_targets.empty?
-
-      final_milestone_targets.all? do |target|
-        if target.team_target?
-          # Need to check for just one student.
-          target.status(student) == Targets::StatusService::STATUS_PASSED
-        else
-          # Need to check for each student in team.
+      if student.team.present?
+        targets_passed?(milestone_assignments.team, student) &&
           students.all? do |s|
-            target.status(s) == Targets::StatusService::STATUS_PASSED
+            targets_passed?(milestone_assignments.student, s)
           end
-        end
+      else
+        targets_passed?(milestone_assignments, student)
       end
     end
 
     private
 
     def student
-      @student ||= @submission.founders.first
+      @student ||= @submission.students.first
     end
 
     def students
-      @students ||= startup.founders
-    end
-
-    def startup
-      @startup ||= student.startup
+      @students ||= student.team.present? ? student.team.students : [student]
     end
 
     def course
-      startup.course
+      student.course
     end
 
-    def last_level
-      @last_level ||= course.levels.order(number: :desc).first
+    def milestone_assignments
+      course.assignments.milestone.merge(Target.live)
     end
 
-    def final_milestone_targets
-      Target.live.joins(target_group: :level).where(target_groups: { milestone: true }, levels: { id: last_level.id })
+    def targets_passed?(assignments, student)
+      target_ids = assignments.pluck(:target_id)
+      TimelineEvent
+        .live
+        .includes(:timeline_event_owners)
+        .where(
+          target_id: target_ids,
+          timeline_event_owners: {
+            student_id: student.id
+          }
+        )
+        .where.not(passed_at: nil)
+        .pluck(:target_id)
+        .uniq
+        .count == assignments.count
     end
   end
 end

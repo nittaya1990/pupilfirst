@@ -1,44 +1,66 @@
 class TimelineEventFilePolicy < ApplicationPolicy
   def download?
-    return false if user.founders.blank? && current_coach.blank?
+    return false if user.blank?
 
     timeline_event = record.timeline_event
 
-    # Allow everyone to download unlinked files. These have just been uploaded by a user, using the submission interface
-    # and will be deleted by DatabaseCleanupJob#cleanup_submission_files if still unlinked after 24 hours.
-    return true if timeline_event.blank?
+    # The unlinked file should be only downloadable by the uploader.
+    return true if timeline_event.blank? && user == record.user
 
-    students = timeline_event.founders
+    return false if timeline_event.blank?
+
+    return true if timeline_event.hidden_at.present? && user == record.user
+
+    return false if timeline_event.hidden_at.present?
+
+    students = timeline_event.students
+    target = timeline_event.target
+    course = target.course
 
     # Coaches can view submission files.
-    return true if current_user_coaches?(timeline_event.target.course, students)
+    return true if current_user_coaches?(course, students)
 
     # Team members linked directly to the submission can access attached files.
-    students.exists?(user_id: user&.id)
+    return true if students.exists?(user_id: user.id)
+
+    # School admins can access files
+    return true if current_school_admin.present?
+
+    # Organisation admins can access files
+    organisation = students.first.user.organisation
+
+    # Return true if requesting user is enrolled in the same course and the assignment has discussion enabled.
+    if target.assignments.first&.discussion? &&
+         user.courses.exists?(id: course.id)
+      return true
+    end
+
+    return false if organisation.blank?
+
+    user.organisations.exists?(id: record.user.organisation_id)
   end
 
   def create?
     # User must be enrolled as a student.
-    return false if user.founders.empty?
+    return false if user.students.empty?
 
     # At least one of the student profiles must be non-exited AND non-ended (course AND access).
-    user.founders.includes(:startup, :course).any? do |founder|
-      !(founder.dropped_out? || founder.access_ended? || founder.course.ended?)
-    end
+    user
+      .students
+      .includes(:cohort)
+      .any? { |student| !(student.dropped_out_at? || student.access_ended?) }
   end
 
   private
 
-  def current_user_coaches?(course, founders)
+  def current_user_coaches?(course, students)
     return false if current_coach.blank?
 
-    # Current user is a coach if zhe has been linked as reviewer to entire course holding this TEF.
+    # Current user is a coach if he has been linked as reviewer to entire course holding this TEF.
     return true if current_coach.courses.exists?(id: course)
 
-    startups = Startup.joins(:founders).where(founders: { id: founders })
-
-    # Current user is a coach if zhe has been linked as reviewer directly to any startup that TE founders are currently
+    # Current user is a coach if he has been linked as reviewer directly to any student that TE students are currently
     # a part of.
-    current_coach.startups.exists?(id: startups)
+    current_coach.students.exists?(id: students)
   end
 end

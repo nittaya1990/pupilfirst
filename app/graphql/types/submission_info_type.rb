@@ -6,11 +6,11 @@ module Types
     field :archived_at, GraphQL::Types::ISO8601DateTime, null: true
     field :passed_at, GraphQL::Types::ISO8601DateTime, null: true
     field :title, String, null: false
-    field :level_number, Int, null: false
     field :user_names, String, null: false
     field :feedback_sent, Boolean, null: false
     field :team_name, String, null: true
     field :reviewer, Types::ReviewerDetailInfoType, null: true
+    field :milestone_number, Int, null: true
 
     def title
       BatchLoader::GraphQL
@@ -20,21 +20,19 @@ module Types
             .where(id: target_ids)
             .each { |target| loader.call(target.id, target.title) }
         end
-      # object.target.title
     end
 
-    def level_number
+    def milestone_number
       BatchLoader::GraphQL
         .for(object.target_id)
         .batch do |target_ids, loader|
           Target
-            .includes(target_group: :level)
+            .includes(:assignments)
             .where(id: target_ids)
             .each do |target|
-              loader.call(target.id, target.target_group.level.number)
+              loader.call(target.id, target.assignments.first.milestone_number)
             end
         end
-      # object.target.target_group.level.number
     end
 
     def user_names
@@ -42,19 +40,18 @@ module Types
         .for(object.id)
         .batch do |submission_ids, loader|
           TimelineEvent
-            .includes(founders: %i[user])
+            .includes(students: %i[user])
             .where(id: submission_ids)
             .each do |submission|
               loader.call(
                 submission.id,
                 submission
-                  .founders
-                  .map { |founder| founder.user.name }
-                  .join(', ')
+                  .students
+                  .map { |student| student.user.name }
+                  .join(", ")
               )
             end
         end
-      # object.founders.map { |founder| founder.user.name }.join(', ')
     end
 
     def feedback_sent
@@ -68,17 +65,16 @@ module Types
               loader.call(submission.id, submission.startup_feedback.present?)
             end
         end
-      # object.startup_feedback.present?
     end
 
-    def students_have_same_team(submission)
-      submission.founders.distinct(:startup_id).pluck(:startup_id).one?
+    def students_have_same_team?(submission)
+      submission.students.distinct(:team_id).pluck(:team_id).count == 1
     end
 
     def resolve_team_name(submission)
-      if submission.team_submission? && students_have_same_team(submission) &&
-           submission.timeline_event_owners.count > 1
-        submission.founders.first.startup.name
+      if submission.timeline_event_owners.size > 1 &&
+           submission.team_submission? && students_have_same_team?(submission)
+        submission.students.first.team.name
       end
     end
 
@@ -87,7 +83,7 @@ module Types
         .for(object.id)
         .batch do |submission_ids, loader|
           TimelineEvent
-            .includes(:timeline_event_owners, :target, founders: %i[startup])
+            .includes(:timeline_event_owners, students: %i[team])
             .where(id: submission_ids)
             .each do |submission|
               loader.call(submission.id, resolve_team_name(submission))

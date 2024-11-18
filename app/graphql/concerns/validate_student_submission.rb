@@ -4,15 +4,17 @@ module ValidateStudentSubmission
   class EnsureSubmittability < GraphQL::Schema::Validator
     def validate(_object, context, value)
       target = Target.find_by(id: value[:target_id])
+      assignment = target.assignments.not_archived.first
       course = target.course
       student =
         context[:current_user]
-          .founders
-          .joins(:level)
-          .where(levels: { course_id: course })
+          .students
+          .joins(:cohort)
+          .where(cohorts: { course_id: course })
           .first
       target_status = Targets::StatusService.new(target, student).status
-      submittable = target.evaluation_criteria.exists?
+      submittable =
+        assignment.checklist.present? || assignment.evaluation_criteria.present?
       submission_required =
         target_status.in?(
           [
@@ -21,7 +23,7 @@ module ValidateStudentSubmission
           ]
         )
       submitted_but_resubmittable =
-        target.resubmittable? &&
+        assignment.checklist.present? &&
           target_status == Targets::StatusService::STATUS_PASSED
 
       if submittable && (submission_required || submitted_but_resubmittable)
@@ -29,7 +31,7 @@ module ValidateStudentSubmission
       end
 
       I18n.t(
-        'mutations.create_submission.blocked_submission_status_error',
+        "mutations.create_submission.blocked_submission_status_error",
         target_status: target_status
       )
     end
@@ -37,24 +39,24 @@ module ValidateStudentSubmission
 
   class AttemptedMinimumQuestions < GraphQL::Schema::Validator
     def validate(_object, _context, value)
-      target = Target.find_by(id: value[:target_id])
+      assignment =
+        Target.find_by(id: value[:target_id]).assignments.not_archived.last
       checklist = value[:checklist]
-      target
+      assignment
         .checklist
         .each_with_object([]) do |c, result|
-          next if c['optional'] == true
+          next if c["optional"] == true
 
-          item = checklist.select { |i| i['title'] == c['title'] }
+          item = checklist.select { |i| i["title"] == c["title"] }
 
-          if item.present? && item.count == 1 && item.first['result'].present?
+          if item.present? && item.count == 1 && item.first["result"].present?
             next
           end
 
-          result <<
-            I18n.t(
-              'mutations.create_submission.missing_answer_error',
-              title: c['title']
-            )
+          result << I18n.t(
+            "mutations.create_submission.missing_answer_error",
+            title: c["title"]
+          )
         end
     end
   end
@@ -63,31 +65,32 @@ module ValidateStudentSubmission
     def validate(_object, _context, value)
       checklist = value[:checklist]
 
-      if checklist.respond_to?(:all?) && checklist.all? do |item|
-           item['title'].is_a?(String) &&
-             item['kind'].in?(Target.valid_checklist_kind_types) &&
-             item['status'] == TimelineEvent::CHECKLIST_STATUS_NO_ANSWER &&
-             item['result'].present? &&
-             valid_result(item['kind'], item['result'], value[:file_ids])
-         end
+      if checklist.respond_to?(:all?) &&
+           checklist.all? { |item|
+             item["title"].is_a?(String) &&
+               item["kind"].in?(Assignment.valid_checklist_kind_types) &&
+               item["status"] == TimelineEvent::CHECKLIST_STATUS_NO_ANSWER &&
+               item["result"].present? &&
+               valid_result(item["kind"], item["result"], value[:file_ids])
+           }
         return
       end
 
-      I18n.t('mutations.create_submission.invalid_submission_checklist')
+      I18n.t("mutations.create_submission.invalid_submission_checklist")
     end
 
     def valid_result(kind, result, file_ids)
       case kind
-      when Target::CHECKLIST_KIND_FILES
+      when Assignment::CHECKLIST_KIND_FILES
         (result - file_ids).empty?
-      when Target::CHECKLIST_KIND_AUDIO
+      when Assignment::CHECKLIST_KIND_AUDIO
         (result.split - file_ids).empty?
-      when Target::CHECKLIST_KIND_LINK
+      when Assignment::CHECKLIST_KIND_LINK
         result.length >= 3 && result.length <= 2048
-      when Target::CHECKLIST_KIND_LONG_TEXT
+      when Assignment::CHECKLIST_KIND_LONG_TEXT
         result.length >= 1 && result.length <= 10_000
-      when Target::CHECKLIST_KIND_MULTI_CHOICE,
-           Target::CHECKLIST_KIND_SHORT_TEXT
+      when Assignment::CHECKLIST_KIND_MULTI_CHOICE,
+           Assignment::CHECKLIST_KIND_SHORT_TEXT
         result.length >= 1 && result.length <= 500
       else
         false
@@ -105,7 +108,7 @@ module ValidateStudentSubmission
 
       @file_items =
         value[:checklist].filter do |item|
-          (item['kind'] == 'files' || item['kind'] == 'audio')
+          (item["kind"] == "files" || item["kind"] == "audio")
         end
 
       combine(
@@ -118,24 +121,21 @@ module ValidateStudentSubmission
     def maximum_three_attachments_per_item
       return if @file_ids.blank?
 
-      if @file_items.select do |item|
-           item['result'].split.flatten.length > 3
-         end.empty?
+      if @file_items
+           .select { |item| item["result"].split.flatten.length > 3 }
+           .empty?
         return
       end
 
-      I18n.t('mutations.create_submission.item_file_limit_error')
+      I18n.t("mutations.create_submission.item_file_limit_error")
     end
 
     def valid_file_ids_in_checklist
       return if @file_ids.blank?
 
-      if @file_items.map { |item| item['result'] }.flatten.sort ==
-           @file_ids.sort
-        return
-      end
+      return if @file_items.pluck("result").flatten.sort == @file_ids.sort
 
-      I18n.t('mutations.create_submission.invalid_files_attached')
+      I18n.t("mutations.create_submission.invalid_files_attached")
     end
 
     def all_files_are_new
@@ -143,7 +143,7 @@ module ValidateStudentSubmission
 
       return if @files.where.not(timeline_event_id: nil).blank?
 
-      I18n.t('mutations.create_submission.linked_file_exists_error')
+      I18n.t("mutations.create_submission.linked_file_exists_error")
     end
   end
 
@@ -151,6 +151,7 @@ module ValidateStudentSubmission
     argument :target_id, GraphQL::Types::ID, required: true
     argument :checklist, GraphQL::Types::JSON, required: true
     argument :file_ids, [GraphQL::Types::ID], required: true
+    argument :anonymous, GraphQL::Types::Boolean, required: true
 
     validates ValidResponse => {}
     validates ValidateFileAttachments => {}

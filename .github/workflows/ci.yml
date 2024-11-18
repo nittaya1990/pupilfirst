@@ -2,18 +2,22 @@ name: Continuous Integration
 
 on:
   push:
-    branches: ["*"]
+    branches: [master]
     paths-ignore:
       - "docs/**"
   pull_request:
     branches: [master]
     paths-ignore:
       - "docs/**"
+  workflow_dispatch:
+
 env:
-  IMAGE_NAME: pupilfirst
+  PF_IMAGE_NAME: pupilfirst
+  PF_VERSION: "2024.2"
+  YARN_CHECKSUM_BEHAVIOR: ignore
 jobs:
   tests:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, 'skip ci')"
 
     services:
@@ -49,11 +53,13 @@ jobs:
       RECAPTCHA_V2_SECRET_KEY: ignored
 
     steps:
+      - name: Install libvips
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvips
       - uses: actions/checkout@v2
-      - name: Use Ruby 2.7
+      - name: Use Ruby 3.2
         uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "2.7"
       - name: Set branch name & commit SHA in env
         uses: actions/github-script@v3
         with:
@@ -88,21 +94,12 @@ jobs:
       - name: Setup Database
         run: |
           bundle exec rake db:schema:load
-      - name: Restore Assets
-        uses: actions/cache@master
-        with:
-          path: |
-            public/assets
-            public/packs-test
-          key: ${{ runner.os }}-assets-${{ env.GIT_BRANCH }}
-          restore-keys: |
-            ${{ runner.os }}-assets-
       - name: Restore Lerna
         uses: actions/cache@master
         with:
           path: |
             node_modules
-            app/javascript/packages/*/node_modules
+            app/frontend/packages/*/node_modules
           key: ${{ runner.os }}-lerna-${{ hashFiles('**/yarn.lock') }}
       - name: Yarn Install
         run: yarn install
@@ -110,12 +107,6 @@ jobs:
         run: bundle exec i18n export
       - name: Compile ReScript files
         run: yarn run re:build
-      - name: Precompile Assets
-        run: |
-          bundle exec rails assets:precompile
-          echo Precompilation complete. Cleaning assets...
-          bundle exec rails assets:clean
-          echo Cleaning complete! All done.
       - name: Specs (On master branch)
         if: env.GIT_BRANCH == 'master'
         run: |
@@ -127,7 +118,7 @@ jobs:
       - name: Specs (On non-master branches)
         if: env.GIT_BRANCH != 'master'
         run: bundle exec rspec -fd
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         if: failure()
         with:
           name: Logs
@@ -148,24 +139,23 @@ jobs:
         run: echo "SHORT_SHA=`echo ${GITHUB_SHA} | cut -c1-8`" >> $GITHUB_ENV
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v1
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
       - name: Build image
-        run: docker build . --file Dockerfile --tag $IMAGE_NAME
+        run: docker build . --file Dockerfile --tag $PF_IMAGE_NAME
 
       - name: Push image
         run: |
-          IMAGE_ID=${{ secrets.DOCKER_HUB_USERNAME }}/$IMAGE_NAME
-          IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
-          VERSION=2022.0
-          echo IMAGE_ID=$IMAGE_ID
-          echo VERSION=$VERSION
-          docker tag $IMAGE_NAME $IMAGE_ID:latest
-          docker tag $IMAGE_NAME $IMAGE_ID:$VERSION
-          docker tag $IMAGE_NAME $IMAGE_ID:$VERSION.$SHORT_SHA
-          docker push $IMAGE_ID --all-tags
+          PF_IMAGE_ID=${{ secrets.DOCKER_HUB_USERNAME }}/$PF_IMAGE_NAME
+          PF_IMAGE_ID=$(echo $PF_IMAGE_ID | tr '[A-Z]' '[a-z]')
+          echo PF_IMAGE_ID=$PF_IMAGE_ID
+          echo PF_VERSION=$PF_VERSION
+          docker tag $PF_IMAGE_NAME $PF_IMAGE_ID:latest
+          docker tag $PF_IMAGE_NAME $PF_IMAGE_ID:$PF_VERSION
+          docker tag $PF_IMAGE_NAME $PF_IMAGE_ID:$PF_VERSION.$SHORT_SHA
+          docker push $PF_IMAGE_ID --all-tags
   deploy_to_digital_ocean:
     needs: dockerhub-master
     name: DigitalOcean App Platform deployment
@@ -175,8 +165,8 @@ jobs:
       DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
     steps:
       - name: Deploy to DigitalOcean
-        uses: digitalocean/app_action@main
-        if: "${{ env.DIGITALOCEAN_ACCESS_TOKEN != '' }}"
+        uses: digitalocean/app_action@v1.1.7
+        if: "${{ env.DIGITALOCEAN_ACCESS_TOKEN != '' && vars.ENABLE_AUTO_DEPLOY == 'true' }}"
         with:
           app_name: pupilfirst
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}

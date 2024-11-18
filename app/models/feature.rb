@@ -9,7 +9,7 @@ class Feature < ApplicationRecord
   def value_must_be_json
     JSON.parse value
   rescue JSON::ParserError
-    errors[:value] << 'must be valid JSON'
+    errors.add(:value, 'must be valid JSON')
   end
 
   class << self
@@ -39,7 +39,7 @@ class Feature < ApplicationRecord
     def overridden?
       return false if @skip_override
 
-      Rails.env.development? || Rails.env.test?
+      Rails.env.local?
     end
   end
 

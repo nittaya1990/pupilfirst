@@ -25,7 +25,7 @@ module Mutations
       archive_course
       notify(
         :success,
-        I18n.t('shared.done_exclamation'),
+        I18n.t('shared.notifications.done_exclamation'),
         I18n.t('mutations.archive_course.success_notification')
       )
       publish(course, :course_archived, current_user, course)
@@ -34,15 +34,9 @@ module Mutations
 
     def archive_course
       Course.transaction do
-        course.update!(
-          archived_at: Time.zone.now,
-          ends_at: course.ends_at.presence || Time.zone.now
-        )
+        course.update!(archived_at: Time.zone.now)
 
-        course
-          .startups
-          .where(access_ends_at: nil)
-          .update_all(access_ends_at: Time.zone.now) # rubocop:disable Rails/SkipsModelValidations
+        course.cohorts.active.update_all(ends_at: course.archived_at) # rubocop:disable Rails/SkipsModelValidations
       end
     end
 

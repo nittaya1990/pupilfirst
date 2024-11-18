@@ -13,11 +13,13 @@ module Home
     alias school_name page_title
 
     def courses
-      @school.courses.live.where(featured: true).order(:name)
+      @school.courses.with_attached_thumbnail.live.where(featured: true).order(sort_index: :asc)
     end
 
     def cover_image
-      view.rails_public_blob_url(@school.cover_image) if @school.cover_image.attached?
+      if @school.cover_image.attached?
+        view.rails_public_blob_url(@school.cover_image)
+      end
     end
 
     def course_thumbnail(course)
@@ -28,29 +30,29 @@ module Home
       @school.about
     end
 
-    def school_name_classes
-      classes = "relative mx-auto flex flex-col justify-center text-white px-6 py-8 md:p-10"
-      @school.about.present? ? "#{classes} text-left" : "#{classes} text-center"
-    end
-
     def courses_as_student
-      @courses_as_student ||= begin
-        if current_user.present?
-          current_user.founders.includes(:startup, :level).each_with_object({}) do |student, courses|
-            status = if student.dropped_out?
-              :dropped_out
-            elsif student.access_ended?
-              :access_ended
-            else
-              :active
-            end
+      @courses_as_student ||=
+        begin
+          if current_user.present?
+            current_user
+              .students
+              .includes(:cohort)
+              .each_with_object({}) do |student, courses|
+                status =
+                  if student.dropped_out_at?
+                    :dropped_out
+                  elsif student.access_ended?
+                    :access_ended
+                  else
+                    :active
+                  end
 
-            courses[student.level.course_id] = status
+                courses[student.cohort.course_id] = status
+              end
+          else
+            {}
           end
-        else
-          {}
         end
-      end
     end
   end
 end

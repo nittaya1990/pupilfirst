@@ -15,10 +15,16 @@ module Layouts
       }
     end
 
-    # private
-
     def school_details
-      { name: school_name, logo_url: logo_url, links: nav_links }
+      {
+        name: school_name,
+        logo_on_light_bg_url: logo_on_light_bg_url,
+        logo_on_dark_bg_url: logo_on_dark_bg_url,
+        icon_on_light_bg_url: icon_on_light_bg_url,
+        icon_on_dark_bg_url: icon_on_dark_bg_url,
+        cover_image_url: cover_image_url,
+        links: nav_links
+      }
     end
 
     def user_details
@@ -28,11 +34,13 @@ module Layouts
         title: current_user.full_title,
         is_admin: current_school_admin.present?,
         can_edit_profile: show_user_edit?,
-        has_notifications: notifications?
+        has_notifications: notifications?,
+        is_author: author?
       }
       if current_user.avatar.attached?
-        user[:avatar_url] =
-          view.rails_public_blob_url(current_user.avatar_variant(:thumb))
+        user[:avatar_url] = view.rails_public_blob_url(
+          current_user.avatar_variant(:thumb)
+        )
       end
 
       user[:coach_id] = current_coach.id if current_coach.present?
@@ -41,31 +49,35 @@ module Layouts
 
     def courses
       if current_user.blank?
-        current_school.courses.live.where(public_preview: true)
+        current_school
+          .courses.with_attached_thumbnail
+          .live
+          .where(public_preview: true)
+          .order(sort_index: :asc)
       elsif current_school_admin.present?
         # All courses are available to admins.
-        current_school.courses.live
+        current_school.courses.with_attached_thumbnail.live.order(sort_index: :asc)
       else
         # current course if course has public preview.
-        previewed_course = @course.public_preview? ? [@course] : []
+        previewed_course = @course&.public_preview? ? [@course] : []
 
         (
           courses_with_author_access + courses_with_review_access +
             courses_with_student_profile + previewed_course
-        ).uniq
+        ).uniq.sort_by { |course| course.name.downcase }
       end
     end
 
     def courses_with_student_profile
       @courses_with_student_profile ||=
         Course
-          .joins(:founders)
+          .joins(:students)
           .where(
             school: current_school,
-            founders: {
-              id: current_user.founders.select(:id)
+            students: {
+              id: current_user.students.select(:id)
             }
-          )
+          ).order(sort_index: :asc)
           .to_a
     end
 
@@ -82,12 +94,16 @@ module Layouts
 
     def courses_with_author_access
       if current_user.course_authors.present?
-        Course
-          .joins(:course_authors)
-          .where(course_authors: current_user.course_authors)
+        Course.joins(:course_authors).order(sort_index: :asc).where(
+          course_authors: current_user.course_authors
+        )
       else
         Course.none
       end
+    end
+
+    def author?
+      current_user.course_authors.exists? && current_user.school_admin.blank?
     end
 
     def courses_with_author_access_ids
@@ -124,7 +140,6 @@ module Layouts
           exited: student_dropped_out(course.id),
           thumbnail_url: course.thumbnail_url,
           linked_communities: linked_communities(course),
-          access_ended: student_access_end(course.id),
           ended: course.ended?,
           is_student: student_profile?(course.id)
         }
@@ -133,16 +148,6 @@ module Layouts
 
     def student_profile?(course_id)
       courses_with_student_profile.detect { |c| c.id == course_id }.present?
-    end
-
-    def student_access_end(course_id)
-      course_with_student =
-        courses_with_student_profile.detect { |c| c.id == course_id }
-
-      return false if course_with_student.blank?
-
-      course_with_student[:access_ends_at].present? &&
-        course_with_student[:access_ends_at].past?
     end
 
     def student_dropped_out(course_id)
@@ -164,6 +169,11 @@ module Layouts
       current_user.notifications.unread.any?
     end
 
+    def course_authors
+      @course_authors ||=
+        current_user.course_authors.where(course: current_school.courses)
+    end
+
     def nav_links
       @nav_links ||=
         begin
@@ -171,7 +181,7 @@ module Layouts
           custom_links =
             SchoolLink
               .where(school: current_school, kind: SchoolLink::KIND_HEADER)
-              .order(created_at: :DESC)
+              .order(:sort_index)
               .map do |school_link|
                 { title: school_link.title, url: school_link.url }
               end
@@ -183,11 +193,16 @@ module Layouts
 
     def admin_link
       if current_school.present? && view.policy(current_school).show?
-        [{ title: 'Admin', url: view.school_path }]
+        [
+          {
+            title: I18n.t("presenters.layouts.app_router.admin_link.title"),
+            url: view.school_path
+          }
+        ]
       elsif current_user.present? && course_authors.any?
         [
           {
-            title: 'Admin',
+            title: I18n.t("presenters.layouts.app_router.admin_link.title"),
             url: view.curriculum_school_course_path(course_authors.first.course)
           }
         ]
@@ -197,17 +212,26 @@ module Layouts
     end
 
     def dashboard_link
-      current_user.present? ? [{ title: 'Dashboard', url: '/dashboard' }] : []
-    end
-
-    def course_authors
-      @course_authors ||=
-        current_user.course_authors.where(course: current_school.courses)
+      if current_user.present?
+        [
+          {
+            title: I18n.t("presenters.layouts.app_router.dashboard_link.title"),
+            url: "/dashboard"
+          }
+        ]
+      else
+        []
+      end
     end
 
     def coaches_link
       if current_school.users.joins(:faculty).exists?(faculty: { public: true })
-        [{ title: 'Coaches', url: '/coaches' }]
+        [
+          {
+            title: I18n.t("presenters.layouts.app_router.coaches_link.title"),
+            url: "/coaches"
+          }
+        ]
       else
         []
       end
@@ -215,12 +239,44 @@ module Layouts
 
     def school_name
       @school_name ||=
-        current_school.present? ? current_school.name : 'Pupilfirst'
+        current_school.present? ? current_school.name : "Pupilfirst"
     end
 
-    def logo_url
+    def logo_on_light_bg_url
       if current_school.logo_on_light_bg.attached?
         view.rails_public_blob_url(current_school.logo_variant(:high))
+      end
+    end
+
+    def logo_on_dark_bg_url
+      if current_school.logo_on_dark_bg.attached?
+        view.rails_public_blob_url(
+          current_school.logo_variant(:high, background: :dark)
+        )
+      end
+    end
+
+    def cover_image_url
+      if current_school.cover_image.attached?
+        view.rails_public_blob_url(current_school.cover_image)
+      end
+    end
+
+    def icon_on_light_bg_url
+      if current_school.icon_on_light_bg.attached?
+        view.rails_public_blob_url(current_school.icon_variant("thumb"))
+      else
+        "/favicon.png"
+      end
+    end
+
+    def icon_on_dark_bg_url
+      if current_school.icon_on_dark_bg.attached?
+        view.rails_public_blob_url(
+          current_school.icon_variant("thumb", background: :dark)
+        )
+      else
+        "/favicon.png"
       end
     end
   end

@@ -9,13 +9,13 @@ class CoursePolicy < ApplicationPolicy
 
     return true if user.faculty.present? && review?
 
-    founder = user.founders.joins(:course).where(courses: { id: record }).first
+    student = user.students.joins(:course).where(courses: { id: record }).first
 
     # User must have a student profile in the course
-    return false if founder.blank?
+    return false if student.blank?
 
     # Dropped out students cannot access course dashboard.
-    !founder.dropped_out?
+    !student.dropped_out_at?
   end
 
   def leaderboard?
@@ -24,17 +24,16 @@ class CoursePolicy < ApplicationPolicy
   end
 
   def review?
-    record.present? && reviewable_courses.present? &&
-      reviewable_courses.exists?(id: record)
+    (current_school_admin.present?) || (reviewable_courses&.exists?(id: record))
   end
 
   def report?
-    founder = user.founders.joins(:course).where(courses: { id: record }).first
+    student = user.students.joins(:course).where(courses: { id: record }).first
 
-    return false if founder.blank?
+    return false if student.blank?
 
     # Dropped out students cannot access report
-    !founder.dropped_out?
+    !student.dropped_out_at?
   end
 
   def show?
@@ -46,7 +45,9 @@ class CoursePolicy < ApplicationPolicy
   end
 
   alias process_application? apply?
-  alias students? review?
+  alias cohorts? review?
+  alias calendar? curriculum?
+  alias calendar_month_data? curriculum?
 
   class Scope < Scope
     def resolve

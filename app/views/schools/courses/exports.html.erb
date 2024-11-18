@@ -1,14 +1,13 @@
 <% content_for(:head) do %>
-  <title><%= @course.name %> | Exports</title>
-
-  <%= stylesheet_pack_tag 'SchoolsCoursesExportsPack' %>
+  <title><%= @course.name %> | <%= t(".title") %></title>
 <% end %>
-
-<%= content_for(:tail) do %>
-  <%= javascript_pack_tag 'SchoolsCoursesExportsPack', nonce: true %>
-<% end %>
-
 <% presenter = Schools::Courses::ExportsPresenter.new(self, @course) %>
-
-<script id="schools-courses-exports__props" type="application/json"><%= presenter.props_to_json.html_safe %></script>
-<div id="schools-courses-exports__root" class="flex flex-1 h-screen bg-gray-100"></div>
+<div class="bg-gray-50 border-t border-gray-300 p-5 fixed bottom-0 end-0 flex flex-col items-center" style="width: calc(100% - 19.5rem)">
+  <%= paginate presenter.course_exports %>
+  <div class="text-center text-sm mt-2">
+    <%= page_entries_info presenter.course_exports, entry_name: 'Export' %>
+  </div>
+</div>
+<script id="schools-courses-exports__props" type="application/json">
+  <%= presenter.props_to_json.html_safe %>
+</script>

@@ -1,10 +1,10 @@
 class UserMailerPreview < ActionMailer::Preview
   def new_post
-    UserMailer.new_post(Post.order('RANDOM()').first, Faculty.last.user)
+    UserMailer.new_post(Post.order("RANDOM()").first, Faculty.last.user)
   end
 
   def daily_digest
-    user = Founder.last.user
+    user = Student.last.user
 
     updates = {
       community_new: new_topics,
@@ -21,9 +21,9 @@ class UserMailerPreview < ActionMailer::Preview
     host = school.domains.primary.fqdn
     delete_account_url =
       Rails.application.routes.url_helpers.delete_account_url(
-        token: 'DELETE_ACCOUNT_TOKEN',
+        token: "DELETE_ACCOUNT_TOKEN",
         host: host,
-        protocol: 'https'
+        protocol: "https"
       )
     UserMailer.delete_account_token(user, delete_account_url)
   end
@@ -31,14 +31,43 @@ class UserMailerPreview < ActionMailer::Preview
   def confirm_account_deletion
     school = School.first
     user = school.users.first
-    UserMailer.confirm_account_deletion(user.name, user.school, school)
+    name = user.preferred_name.presence || user.name
+    UserMailer.confirm_account_deletion(name, user.school, school)
   end
 
   def account_deletion_notification
     UserMailer.account_deletion_notification(
       User.last,
-      'https://test.school.com',
+      "https://test.school.com",
       24
+    )
+  end
+
+  def update_email_token
+    school = School.first
+    user = school.users.first
+    new_email = Faker::Internet.email
+    update_email_url = Faker::Internet.url
+    UserMailer.update_email_token(user, new_email, update_email_url)
+  end
+
+  def confirm_email_update
+    school = School.first
+    user = school.users.first
+    UserMailer.confirm_email_update(user.name, user.email, user.school)
+  end
+
+  def email_change_in_user_standing
+    school = School.first
+    user = school.users.first
+    previous_standing = "Netural"
+    current_standing = "Community Hero"
+    reason = "Very active in community forum."
+    UserMailer.email_change_in_user_standing(
+      user,
+      current_standing,
+      previous_standing,
+      reason
     )
   end
 
@@ -63,18 +92,21 @@ class UserMailerPreview < ActionMailer::Preview
         author: Faker::Name.name,
         type: update_type,
         community_id: rand(10),
-        community_name: Faker::Lorem.words(number: 2).join(' ').titleize
+        community_name: Faker::Lorem.words(number: 2).join(" ").titleize
       }
     end
   end
 
   def updates_for_coach
     (1..3).map do |_id|
+      pending_submissions = rand(1..9)
+
       {
         course_id: rand(1..9),
         course_name: Faker::Name.name,
-        pending_submissions: rand(1..9),
-        pending_submissions_for_coach: rand(0..3)
+        is_team_coach: true,
+        pending_submissions: pending_submissions,
+        pending_submissions_for_coach: [rand(0..3), pending_submissions].min
       }
     end
   end

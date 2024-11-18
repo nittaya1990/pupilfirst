@@ -1,10 +1,9 @@
 module Mutations
   class BeginProcessingSubmissionReport < ApplicationQuery
-    include QueryAuthorizeCoach
+    include QueryAuthorizeReviewSubmissions
     include ValidateSubmissionGradable
 
-    argument :submission_id, ID, required: true
-    argument :description,
+    argument :report,
              String,
              required: false,
              validates: {
@@ -12,8 +11,11 @@ module Mutations
                  maximum: 1000
                }
              }
+    argument :reporter, String, required: true
+    argument :heading, String, required: false
+    argument :target_url, String, required: false
 
-    description 'Create in progress report for a submission'
+    description "Create in progress report for a submission"
 
     field :success, Boolean, null: false
 
@@ -26,15 +28,33 @@ module Mutations
 
     def save_report
       SubmissionReport.transaction do
-        SubmissionReport
-          .where(submission_id: @params[:submission_id])
-          .first_or_create!(
-            status: 'in_progress',
-            test_report: @params[:description],
+        report =
+          SubmissionReport.find_by(
+            submission_id: @params[:submission_id],
+            reporter: @params[:reporter]
+          )
+
+        if report.present?
+          report.update!(
+            report: @params[:report],
+            status: "in_progress",
             started_at: Time.zone.now,
             completed_at: nil,
-            conclusion: nil
+            heading: @params[:heading],
+            target_url: @params[:target_url].presence || report.target_url
           )
+        else
+          SubmissionReport.create!(
+            submission_id: @params[:submission_id],
+            report: @params[:report],
+            status: "in_progress",
+            started_at: Time.zone.now,
+            completed_at: nil,
+            reporter: @params[:reporter],
+            heading: @params[:heading],
+            target_url: @params[:target_url]
+          )
+        end
       end
     end
 

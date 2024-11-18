@@ -1,17 +1,10 @@
-<% presenter = ::Layouts::StudentCoursePresenter.new(self, @course) %>
-
 <% content_for(:head) do %>
-  <%= stylesheet_pack_tag 'StudentCourseLayoutPack', media: 'all' %>
+  <%= vite_javascript_tag 'student', nonce: true, media: 'all' %>
 <% end %>
-
-<% content_for(:tail) do %>
-  <%= javascript_pack_tag 'StudentCourseLayoutPack', nonce: true %>
+<% content_for(:nav) do %>
+  <%= render 'layouts/student_top_nav' %>
 <% end %>
-
 <% content_for(:wrapper) do %>
-  <div id="course-header-root" data-json-props="<%= presenter.props_to_json %>"></div>
-
-  <%= content_for(:inner_wrapper) %>
+  <%= render 'layouts/course_nav' %>
 <% end %>
-
-<%= render template: 'layouts/student' %>
+<%= render template: 'layouts/application' %>

@@ -1,4 +1,4 @@
-require 'rails_helper'
+require "rails_helper"
 
 describe Users::MergeAccountsService do
   subject { described_class }
@@ -8,31 +8,28 @@ describe Users::MergeAccountsService do
   let!(:old_user) { create :user, school: school }
 
   # Create courses and student profiles
-  let!(:course_1) { create :course, school: school }
-  let!(:course_2) { create :course, school: school }
-  let!(:level_1_c1) { create :level, :one, course: course_1 }
-  let!(:level_1_c2) { create :level, :one, course: course_2 }
-  let!(:level_2_c2) { create :level, :one, course: course_2 }
+  let!(:course_1) { create :course, :with_cohort, school: school }
+  let!(:course_2) { create :course, :with_cohort, school: school }
 
-  let!(:team_old_user_c1) { create :team, level: level_1_c1 }
-  let!(:team_old_user_c2) { create :team, level: level_2_c2 }
   let!(:student_old_user_c1) do
-    create :student, user: old_user, startup: team_old_user_c1
+    create :student, user: old_user, cohort: course_1.cohorts.first
   end
   let!(:student_old_user_c2) do
-    create :student, user: old_user, startup: team_old_user_c2
+    create :student, user: old_user, cohort: course_2.cohorts.first
   end
 
   # Add coach profiles
   let!(:coach_old_user) { create :faculty, school: school, user: old_user }
   let!(:course_enrollment) do
-    create :faculty_course_enrollment, course: course_1, faculty: coach_old_user
+    create :faculty_cohort_enrollment,
+           cohort: course_1.cohorts.first,
+           faculty: coach_old_user
   end
-  let!(:team_in_c1) { create :team, level: level_1_c1 }
-  let!(:student_in_c1) { create :student, startup: team_in_c1 }
+
+  let!(:student_in_c1) { create :student, cohort: course_1.cohorts.first }
   let!(:student_enrollment) do
-    create :faculty_startup_enrollment,
-           startup: team_in_c1,
+    create :faculty_student_enrollment,
+           student: student_in_c1,
            faculty: coach_old_user
   end
 
@@ -70,8 +67,8 @@ describe Users::MergeAccountsService do
     create :course_export, :students, user: old_user, course: course_2
   end
 
-  describe '#execute' do
-    it 'merges the old user account to a new account and updates applicable records' do
+  describe "#execute" do
+    it "merges the old user account to a new account and updates applicable records" do
       old_user_id = old_user.id
       old_user_email = old_user.email
 
@@ -113,19 +110,18 @@ describe Users::MergeAccountsService do
       audit_record = AuditRecord.first
       expect(audit_record.school_id).to eq(new_user.school_id)
       expect(audit_record.audit_type).to eq(
-        AuditRecord::TYPE_MERGE_USER_ACCOUNTS
+        AuditRecord.audit_types[:merge_user_accounts]
       )
       expect(audit_record.metadata.to_h).to eq(
-        { 'user_id' => new_user.id, 'old_account_email' => old_user_email }
+        { "user_id" => new_user.id, "old_account_email" => old_user_email }
       )
     end
 
-    context 'both users have student profiles in the same course' do
-      let!(:team_new_user_c1) { create :team, level: level_1_c1 }
+    context "both users have student profiles in the same course" do
       let!(:student_new_user_c1) do
-        create :student, user: new_user, startup: team_new_user_c1
+        create :student, user: new_user, cohort: course_1.cohorts.first
       end
-      it 'prompts to select the student profile to be used' do
+      it "prompts to select the student profile to be used" do
         expect {
           subject.new(old_user: old_user, new_user: new_user).execute
         }.to raise_error(
@@ -134,7 +130,7 @@ describe Users::MergeAccountsService do
         )
       end
 
-      it 'throws an error if both profile ids are passed to the service' do
+      it "throws an error if both profile ids are passed to the service" do
         expect {
           subject.new(
             old_user: old_user,
@@ -150,7 +146,7 @@ describe Users::MergeAccountsService do
         )
       end
 
-      it 'retains the student profile of the new account if selected' do
+      it "retains the student profile of the new account if selected" do
         subject.new(
           old_user: old_user,
           new_user: new_user,
@@ -160,7 +156,7 @@ describe Users::MergeAccountsService do
         student_profiles_for_c1 =
           new_user
             .reload
-            .founders
+            .students
             .joins(:course)
             .where(courses: { id: course_1.id })
         current_student_profile = student_profiles_for_c1.first
@@ -168,7 +164,7 @@ describe Users::MergeAccountsService do
         expect(current_student_profile).to eq(student_new_user_c1)
       end
 
-      it 'switches to the student profile of the old account if selected' do
+      it "switches to the student profile of the old account if selected" do
         new_user_student_profile_id = student_new_user_c1.id
         subject.new(
           old_user: old_user,
@@ -179,13 +175,13 @@ describe Users::MergeAccountsService do
         student_profiles_for_c1 =
           new_user
             .reload
-            .founders
+            .students
             .joins(:course)
             .where(courses: { id: course_1.id })
         current_student_profile = student_profiles_for_c1.first
         expect(student_profiles_for_c1.count).to eq(1)
         expect(current_student_profile).to eq(student_old_user_c1)
-        expect(Founder.find_by(id: new_user_student_profile_id)).to eq(nil)
+        expect(Student.find_by(id: new_user_student_profile_id)).to eq(nil)
       end
     end
   end

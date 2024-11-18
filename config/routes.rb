@@ -6,12 +6,12 @@ Rails.application.routes.draw do
   end
 
   direct :rails_public_blob do |blob|
-    if Rails.env.development? || Rails.env.test? || ENV['CLOUDFRONT_HOST'].blank?
+    if Rails.env.local? || ENV['CLOUDFRONT_HOST'].blank?
       route =
         if blob.is_a?(ActiveStorage::Variant) || blob.is_a?(ActiveStorage::VariantWithRecord)
           :rails_representation
         else
-         :rails_blob
+          :rails_blob
         end
       route_for(route, blob, only_path: true)
     else
@@ -26,20 +26,25 @@ Rails.application.routes.draw do
   devise_scope :user do
     post 'users/send_reset_password_email', controller: 'users/sessions', action: 'send_reset_password_email', as: 'user_send_reset_password_email'
     get 'users/token', controller: 'users/sessions', action: 'token', as: 'user_token'
+    get 'users/auth_callback', controller: 'users/sessions', action: 'auth_callback', as: 'user_auth_callback'
     get 'users/reset_password', controller: 'users/sessions', action: 'reset_password', as: 'reset_password'
     post 'users/update_password', controller: 'users/sessions', action: 'update_password', as: 'update_password'
-    get 'users/sign_in_with_email', controller: 'users/sessions', action: 'sign_in_with_email', as: 'sign_in_with_email'
+    get 'users/sign_in_with_password', controller: 'users/sessions', action: 'sign_in_with_password', as: 'sign_in_with_password'
+    post 'users/sign_in_with_otp', controller: 'users/sessions', action: 'sign_in_with_otp', as: 'sign_in_with_otp'
     get 'users/request_password_reset', controller: 'users/sessions', action: 'request_password_reset', as: 'request_password_reset'
+    get 'users/email_sent', controller: 'users/sessions', action: 'email_sent', as: 'session_email_sent'
 
     if Rails.env.development?
       get 'users/auth/developer', controller: 'users/omniauth_callbacks', action: 'passthru', as: 'user_developer_omniauth_authorize'
-      post 'users/auth/developer/callback', controller: 'users/omniauth_callbacks', action: 'developer'
+      match 'users/auth/developer/callback', controller: 'users/omniauth_callbacks', action: 'developer', via: [:get, :post]
     end
   end
 
   get 'users/delete_account', controller: 'users', action: 'delete_account', as: 'delete_account'
 
   post 'users/email_bounce', controller: 'users/postmark_webhook', action: 'email_bounce'
+
+  get 'users/update_email', controller: 'users', action: 'update_email', as: 'update_email'
 
   authenticate :user, ->(u) { AdminUser.where(email: u.email).present? } do
     mount Delayed::Web::Engine, at: '/jobs'
@@ -54,38 +59,99 @@ Rails.application.routes.draw do
 
   resources :notifications, only: %i[show]
 
-  resource :school, only: %i[show update] do
+  resource :school, only: [] do
     get 'customize'
     get 'admins'
+    get 'standing'
+    get 'discord_configuration'
+    get 'discord_server_roles'
+    get 'code_of_conduct'
+    patch 'code_of_conduct', action: 'update_code_of_conduct'
+    patch 'toggle_standing'
+    patch 'discord_credentials'
     post 'images'
+    post 'discord_sync_roles'
+    post 'update_default_discord_roles'
+
+    resources :standings, controller: 'schools/standings', except: [:index, :show]
   end
 
   namespace :school, module: 'schools' do
+    [
+      '/',
+      'courses',
+      'courses/new',
+      'courses/:course_id',
+      'courses/:course_id/details',
+      'courses/:course_id/images',
+      'courses/:course_id/actions',
+      'courses/:course_id/cohorts',
+      'courses/:course_id/cohorts/new',
+      'cohorts/:cohort_id/details',
+      'cohorts/:cohort_id/actions',
+      'courses/:course_id/students',
+      'courses/:course_id/students/new',
+      'courses/:course_id/students/import',
+      'students/:student_id/details',
+      'students/:student_id/actions',
+      'students/:student_id/standing',
+      'courses/:course_id/teams',
+      'courses/:course_id/teams/new',
+      'teams/:team_id/details',
+      'teams/:team_id/actions',
+    ].each do |path|
+      get path, action: 'school_router'
+    end
+
+    resources :users, only: %i[index show edit update]
+
     resources :faculty, only: %i[create update destroy], as: 'coaches', path: 'coaches' do
       collection do
         get '/', action: 'school_index'
       end
     end
 
+    resources :calendars, only: %i[update], controller: 'calendars'
+    resources :calendar_events, only: %i[update destroy], controller: 'calendar_events'
+
     resources :targets, only: [] do
       resource :content_block, only: %i[create]
+      member do
+        get 'action', action: 'action'
+        patch 'update_action', action: 'update_action'
+      end
     end
 
-    resources :courses, only: %i[index show new] do
+    resources :cohorts, only: [] do
+      member do
+        post 'bulk_import_students'
+      end
+    end
+
+    resources :assignments, only: [] do
+      member do
+        patch :update_milestone_number
+      end
+    end
+
+    resources :courses, only: [] do
       member do
         get 'applicants'
-        get 'details'
-        get 'images', action: :details
-        get 'actions', action: :details
+        get 'calendar_events'
         get 'curriculum'
         get 'exports'
         get 'authors'
         get 'certificates'
         post 'certificates', action: 'create_certificate'
-        post 'bulk_import_students'
         get 'evaluation_criteria'
         post 'attach_images'
+        get 'calendar_month_data'
+        get 'assignments'
       end
+
+      resources :calendar_events, only: %i[new create show edit], controller: 'calendar_events'
+
+      resources :calendars, only: %i[new create edit], controller: 'calendars'
 
       resources :authors, only: %w[show new]
 
@@ -112,14 +178,12 @@ Rails.application.routes.draw do
         end
       end
 
-      post 'mark_teams_active'
       get 'students'
-      get 'inactive_students'
       post 'delete_coach_enrollment'
       post 'update_coach_enrollments'
     end
 
-    resources :founders, as: 'students', path: 'students', except: %i[index] do
+    resources :students, as: 'students', path: 'students', except: %i[index] do
       collection do
         post 'team_up'
       end
@@ -132,6 +196,30 @@ Rails.application.routes.draw do
     resources :target_groups, only: %i[update]
 
     resources :communities, only: %i[index]
+  end
+
+  resources :organisations, only: %i[show index] do
+    resources :cohorts, module: 'organisations', only: %i[show] do
+      member do
+        get 'students'
+      end
+    end
+
+    resources :courses,  module: 'organisations', only: [] do
+      member do
+        get 'active_cohorts'
+        get 'ended_cohorts'
+      end
+    end
+  end
+
+  namespace :org, module: 'organisations' do
+    resources :students, only: %[show] do
+      member do
+        get 'submissions'
+        get 'standing'
+      end
+    end
   end
 
   resources :communities, only: %i[show] do
@@ -149,6 +237,9 @@ Rails.application.routes.draw do
 
   resource :user, only: %i[edit] do
     post 'upload_avatar'
+    post 'clear_discord_id'
+    get 'discord_account_required'
+    get 'standing'
   end
 
   resources :timeline_event_files, only: %i[create] do
@@ -159,12 +250,10 @@ Rails.application.routes.draw do
 
   scope 'coaches', controller: 'faculty' do
     get '/', action: 'index', as: 'coaches_index'
-    get '/:id(/:slug)', action: 'show', as: 'coach'
-    get '/filter/:active_tab', action: 'index'
   end
 
-  # Founder show
-  scope 'students', controller: 'founders' do
+  # Student show
+  scope 'students', controller: 'students' do
     get '/:id/report', action: 'report', as: 'student_report'
   end
 
@@ -180,6 +269,7 @@ Rails.application.routes.draw do
     member do
       get 'details_v2'
       get ':slug', action: 'show'
+      post 'mark_as_read'
     end
   end
 
@@ -192,13 +282,21 @@ Rails.application.routes.draw do
   resources :courses, only: %i[show] do
     member do
       get 'review', action: 'review'
-      get 'students', action: 'students'
+      get 'cohorts', action: 'cohorts'
+      get 'calendar', action: 'calendar'
+      get 'calendar_month_data', action: 'calendar_month_data'
       get 'leaderboard', action: 'leaderboard'
       get 'curriculum', action: 'curriculum'
       get 'report', action: 'report'
       get 'apply', action: 'apply'
       post 'apply', action: 'process_application'
       get '/(:name)', action: 'show'
+    end
+  end
+
+  resources :cohorts, only: %i[show] do
+    member do
+      get 'students', action: 'students'
     end
   end
 
@@ -210,8 +308,12 @@ Rails.application.routes.draw do
 
   get '/c/:serial_number', to: 'issued_certificates#verify', as: :issued_certificate
   get '/help/:document', to: 'help#show'
-  get '/oauth/:provider', to: 'home#oauth', as: 'oauth', constraints: SsoConstraint.new
+  get '/oauth/:provider', to: 'home#oauth', as: 'oauth', constraints: DomainConstraint.new(:sso)
   get '/oauth_error', to: 'home#oauth_error', as: 'oauth_error'
+
+  namespace :inbound_webhooks do
+    resources :beckn, only: [:create], constraints: DomainConstraint.new(:beckn)
+  end
 
   # Allow developers to simulate the error pages.
   get '/errors/:error_type', to: 'errors#simulate', constraints: DevelopmentConstraint.new

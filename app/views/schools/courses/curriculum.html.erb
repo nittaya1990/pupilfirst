@@ -1,12 +1,7 @@
 <% content_for(:head) do %>
-  <title><%= current_school.name %> | Curriculum</title>
-  <%= stylesheet_pack_tag 'SchoolsCoursesCurriculumPack', media: 'all' %>
+  <title><%= @course.name %> | <%= t(".title") %> </title>
 <% end %>
-
-<% content_for(:tail) do %>
-  <%= javascript_pack_tag 'SchoolsCoursesCurriculumPack', nonce: true %>
-<% end %>
-
 <% presenter = Schools::Courses::CurriculumPresenter.new(self, @course) %>
-
-<div id="curriculum-editor" class="flex flex-1 h-full bg-gray-100" data-props="<%= presenter.props_to_json %>"></div>
+<script id="curriculum-editor" type="application/json">
+  <%= presenter.props_to_json.html_safe %>
+</script>

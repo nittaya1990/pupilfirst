@@ -1,0 +1,49 @@
+exception CannotParseUnknownRole(string)
+
+type role =
+  | Student
+  | Team
+
+type t = {
+  id: string,
+  role: role,
+  title: string,
+  targetGroupId: string,
+  sortIndex: int,
+  resubmittable: bool,
+  prerequisiteTargetIds: array<string>,
+  reviewed: bool,
+  milestone: bool,
+  hasAssignment: bool,
+}
+
+let decode = json => {
+  open Json.Decode
+  {
+    id: json |> field("id", string),
+    role: switch json |> field("role", string) {
+    | "student" => Student
+    | "team" => Team
+    | unknownRole => raise(CannotParseUnknownRole(unknownRole))
+    },
+    title: json |> field("title", string),
+    targetGroupId: json |> field("targetGroupId", string),
+    sortIndex: json |> field("sortIndex", int),
+    resubmittable: json |> field("resubmittable", bool),
+    prerequisiteTargetIds: json |> field("prerequisiteTargetIds", array(string)),
+    reviewed: json |> field("reviewed", bool),
+    milestone: json |> field("milestone", bool),
+    hasAssignment: json |> field("hasAssignment", bool),
+  }
+}
+
+let id = t => t.id
+let role = t => t.role
+let title = t => t.title
+let sortIndex = t => t.sortIndex
+let targetGroupId = t => t.targetGroupId
+let prerequisiteTargetIds = t => t.prerequisiteTargetIds
+let resubmittable = t => t.resubmittable
+let reviewed = t => t.reviewed
+let milestone = t => t.milestone
+let hasAssignment = t => t.hasAssignment
